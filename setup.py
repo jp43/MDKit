@@ -65,7 +65,7 @@ def check_import(pkgname, pkgver):
 setup(name='mdtools',
       packages=['mdtools', 'mdtools.amber', 'mdtools.gromacs', 'mdtools.utility'],
       package_data = {'mdtools.amber': ['PROTON_INFO', 'atomic_ions.cmd']},
-      scripts = ['bin/prepare_md.py', 'bin/run_mmpbsa.py'],
+      scripts = ['bin/prepare_md.py', 'bin/run_mmpbsa.py', 'bin/minimz', 'bin/cluster_poses'],
       license='LICENSE.txt',
       description='Tools to run and analysis MD simulations from popular MD packages',
       long_description=open('README.md').read(),
