@@ -8,7 +8,7 @@ import subprocess
 import shlex
 import numpy as np
 
-from mdtools.util import utils
+from mdtools.utility import utils
 from mdtools.amber import ambertools
 
 # ----- SET CONSTANTS ------
