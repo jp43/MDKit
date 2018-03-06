@@ -671,11 +671,6 @@ done\n"""%locals()
             else:
                 raise ValueError('No option %s found for tgtmd keyword continue'%tgtmd_options['continue'])
 
-        script += """\ncd %(mddir)s
-# production run
-%(exe)s -O -i md.mdin -o md.mdout -c ../npt/npt.rst -r md.rst -x md.mdcrd -inf md.mdinfo -p ../common/start.prmtop%(ref_flag)s
-cd ..\n"""%locals()
-
     else: # implicit solvent
         if args.solvent == 'vacuo':
             title = 'MD Production (In-Vacuo)'

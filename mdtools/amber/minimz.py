@@ -6,14 +6,14 @@ import subprocess
 import argparse
 
 import ambertools
+from mdtools.utility import utils
 from mdtools.utility import mol2
 from mdtools.utility import reader
 
 leap_default_settings = {'solvate': False, 'PBRadii': None, 'forcefield': 'leaprc.ff14SB'}
 
-def do_minimization(file_r, files_l=None, restraints=None, keep_hydrogens=False):
-    """
-    do_minimization(file_r, files_l=None, keep_hydrogens=False)
+def do_minimization(file_r, files_l=None, keep_hydrogens=False):
+    """ do_minimization(file_r, files_l=None, keep_hydrogens=False)
 
     Performs Amber minimization
 
@@ -24,8 +24,8 @@ def do_minimization(file_r, files_l=None, restraints=None, keep_hydrogens=False)
 
     Steps
     -----
-    antechamber, parmchk (ligand-protein complex) 
-"""
+    antechamber, parmchk (ligand-protein complex)"""
+
     # get current directory
     curdir = os.getcwd()
 
@@ -49,7 +49,7 @@ def do_minimization(file_r, files_l=None, restraints=None, keep_hydrogens=False)
 
     # only keep atom lines
     with open(file_r, 'r') as tmpf:
-        with open('rec.pdb', 'w') as recf:
+        with open('protein.pdb', 'w') as recf:
             for line in tmpf:
                 # check if non-hydrogen atom line
                 if line.startswith(('ATOM','TER')):
@@ -59,100 +59,82 @@ def do_minimization(file_r, files_l=None, restraints=None, keep_hydrogens=False)
                 recf.write('TER\n')
 
     # prepare receptor
-    ambertools.prepare_receptor('rec.pdb', file_r, keep_hydrogens=keep_hydrogens)
-
-    if not isinstance(restraints, list):
-        restraints = [restraints]
+    ambertools.prepare_receptor('protein.pdb', file_r, keep_hydrogens=keep_hydrogens)
 
     # amber minimization
-    do_amber_minimization('rec.pdb', files_l, restraints=restraints, keep_hydrogens=keep_hydrogens)
+    do_amber_minimization('protein.pdb', files_l)
     os.chdir(curdir)
 
-def prepare_minimization_config_file(script_name, restraint=None):
-
-    if restraint:
-        restraint_lines = """\nibelly=1,
- bellymask='%(restraint)s',"""%locals()
-    else:
-        restraint_lines = ""
+def prepare_minimization_config_file(script_name, ligname):
 
     with open(script_name, 'w') as minf:
         script ="""In-Vacuo minimization with restraints
 &cntrl
- imin=1, maxcyc=5000,
+ imin=1,
+ maxcyc=5000,
  ntb=0,
  ncyc=1000,
  ntmin=1,
  ntpr=5,
- cut=10.0,%(restraint_lines)s
+ cut=10.0,
+ ibelly=1,
+ bellymask=':%(ligname)s'
 &end\n"""%locals()
         minf.write(script)
 
-def prepare_and_minimize(restraints, keep_hydrogens=False):
+def prepare_and_minimize(output_file, ligname):
 
     # run tleap
     subprocess.check_output('tleap -f leap.in > /dev/null', shell=True, executable='/bin/bash')
     shutil.copyfile('start.inpcrd', 'start.rst')
 
-    for idx, restraint in enumerate(restraints):
-        infile = 'min%i.in'%idx
-        outfile = 'min%i.out'%idx 
-        prepare_minimization_config_file(infile, restraint)
-        try:
-            # run minimization
-            subprocess.check_output('sander -O -i %s -o %s -c start.inpcrd -p start.prmtop -ref start.rst -r end.inpcrd > /dev/null'%(infile, outfile), shell=True, executable='/bin/bash')
-            shutil.move('end.inpcrd', 'start.inpcrd')
-            status = 0 # minimization finished normaly
-        except subprocess.CalledProcessError as e:
-            # the minimization failed
-            return e.returncode
+    prepare_minimization_config_file('min.in', ligname)
+    try:
+        # run minimization
+        utils.run_shell_command('sander -O -i min.in -o min.out -c start.inpcrd -p start.prmtop -ref start.rst -r end.inpcrd')
+        shutil.move('end.inpcrd', 'start.inpcrd')
+        status = 0 # minimization finished normaly
+    except subprocess.CalledProcessError as e:
+        # the minimization failed
+        return e.returncode
 
     # get output configuration
-    subprocess.check_output('cpptraj -p start.prmtop -y start.inpcrd -x complex_out.pdb > /dev/null', shell=True, executable='/bin/bash')
+    utils.run_shell_command('cpptraj -p start.prmtop -y start.inpcrd -x %s'%output_file)
     return status
 
-def do_amber_minimization(file_r, files_l, restraints=None, keep_hydrogens=False):
+def do_amber_minimization(file_r, files_l):
 
-    if files_l:
-        for idx, file_l in enumerate(files_l):
-            shutil.copyfile(file_l, 'lig.mol2')
+    tmpfile_l = 'lig.mol2'
+    for idx, file_l in enumerate(files_l):
+        shutil.copyfile(file_l, tmpfile_l)
 
-            # change ligand name to LIG
-            ligname = reader.open('lig.mol2').ligname
-            mol2.update_mol2file('lig.mol2', 'lig.mol2', ligname='LIG')
+        # do not regenerate the charges using antechamber when preparing the ligand
+        ambertools.prepare_ligand(file_r, tmpfile_l, 'complex.pdb', charge_method=None)
 
-            if idx == 0:
-                ambertools.prepare_leap_config_file('leap.in', file_r, 'lig.mol2', 'complex.pdb')
+        # prepare tleap config file
+        ambertools.prepare_leap_config_file('leap.in', file_r, tmpfile_l, 'complex.pdb')
 
-            # since the charges of the original .mol2 file are eventually kept using pdb2mol2
-            # do not regenerate the charges using antechamber when preparing the ligand
-            ambertools.prepare_ligand(file_r, 'lig.mol2', 'complex.pdb', charge_method='None')
-            status = prepare_and_minimize(restraints, keep_hydrogens=keep_hydrogens)
+        ligname = ambertools.get_ligand_name('lig.mol2')
+        status = prepare_and_minimize('complex-out.pdb', ligname)
 
-            if status == 0:
-                is_ligand = False
-                # get ligand atom positions from complex file
-                with open('complex_out.pdb', 'r') as cf:
-                    with open('rec-%s.out.pdb'%(idx+1), 'w') as recf:
-                        with open('lig.out.pdb', 'w') as tmpf:
-                            for line in cf:
-                                if line.startswith(('ATOM', 'HETATM')):
-                                    if line[17:20] == 'LIG':
-                                        is_ligand = True
-                                if is_ligand:
-                                    tmpf.write(line)
-                                else:
-                                    recf.write(line)
-                if not is_ligand:
-                    raise ValueError('Ligand not found in complex_out.pdb')
+        if status == 0:
+            is_ligand = False
+            # get ligand atom positions from complex file
+            with open('complex-out.pdb', 'r') as cf:
+                with open('protein-%s-out.pdb'%(idx+1), 'w') as recf:
+                    with open('lig-out.pdb', 'w') as ligf:
+                        for line in cf:
+                            if line.startswith(('ATOM', 'HETATM')):
+                                if line[17:20] == ligname:
+                                    is_ligand = True
+                            if is_ligand:
+                                ligf.write(line)
+                            else:
+                                recf.write(line)
+                            is_ligand = False
 
-                mol2file = 'lig-%s.out.mol2'%(idx+1)
-                mol2.pdb2mol2('lig.out.pdb', mol2file, file_l)
-                mol2.update_mol2file(mol2file, mol2file, ligname=ligname)
-    else:
-        ambertools.prepare_leap_config_file('leap.in', file_r, None, 'complex.pdb')
-        prepare_and_minimize(restraints, keep_hydrogens=keep_hydrogens)
-        shutil.move('complex_out.pdb', 'rec.out.pdb')
+            mol2file = 'lig-%s-out.mol2'%(idx+1)
+            mol2.pdb2mol2('lig-out.pdb', mol2file, file_l)
 
 def create_arg_parser():
 
@@ -171,12 +153,6 @@ def create_arg_parser():
         required=True,
         help = 'Receptor coordinate file(s): .pdb')
 
-    parser.add_argument('-restraints',
-        type=str,
-        dest='restraints',
-        default=None,
-        help = 'Restraints')
-
     parser.add_argument('-removeh',
         dest='removeh',
         action='store_true',
@@ -189,4 +165,4 @@ def run():
     parser = create_arg_parser()
     args = parser.parse_args()
 
-    do_minimization(args.input_file_r, files_l=args.input_file_l, restraints=args.restraints, keep_hydrogens=not args.removeh)
+    do_minimization(args.input_file_r, files_l=args.input_file_l, keep_hydrogens=not args.removeh)

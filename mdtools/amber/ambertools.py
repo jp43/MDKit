@@ -4,6 +4,7 @@ import shutil
 import subprocess
 
 from mdtools.utility import reader
+from mdtools.utility import utils
 
 def get_nwaters(logfile):
 
@@ -19,7 +20,7 @@ def get_removed_waters(file_r, files_l, file_c, nwaters_tgt, boxsize, step=0.01,
         file_c = file_r
 
     # determine the number of solute residues
-    nsolutes = int(subprocess.check_output("echo `cpptraj -p %(file_c)s -mr '*' | awk '{print NF - 1;}'`"%locals(), shell=True))
+    nsolutes = int(utils.run_shell_command("echo `cpptraj -p %(file_c)s -mr '*' | awk '{print NF - 1;}'`"%locals()))
 
     print "Targeted number of water residues:", nwaters_tgt
     print "Number of residues found for solute:", nsolutes
@@ -35,7 +36,7 @@ def get_removed_waters(file_r, files_l, file_c, nwaters_tgt, boxsize, step=0.01,
         lastdiff = 1e10
         while True:
             prepare_leap_config_file('leap.in', file_r, files_l, file_c, solvate=True, distance=d, closeness=c)
-            subprocess.check_output('tleap -f leap.in > leap.log', shell=True)
+            utils.run_shell_command('tleap -f leap.in > leap.log')
             nwaters = get_nwaters('leap.log')
             diff = nwaters - nwaters_tgt
             #print d, c, diff, nwaters
@@ -257,15 +258,15 @@ charge method to estimate the appropriate net charge!!"""
     max_net_charge = 30
     net_charge = [0]
 
-    if c.lower() != 'none':
+    if c and c.lower() != 'none':
         for nc in range(max_net_charge):
             net_charge.extend([nc+1,-(nc+1)])
 
         for nc in net_charge:
             iserror = False
-            command = 'antechamber -i %(infile)s -fi %(ext)s -o %(outfile)s -fo mol2 -at %(at)s -c %(c)s -nc %(nc)s -du y -pf y >> %(logfile)s'%locals()
-            subprocess.check_call('echo "# command used: %(command)s" > %(logfile)s'%locals(), shell=True) # print command in logfile
-            subprocess.check_call(command, shell=True)
+            cmd = 'antechamber -i %(infile)s -fi %(ext)s -o %(outfile)s -fo mol2 -at %(at)s -c %(c)s -nc %(nc)s -du y -pf y >> %(logfile)s'%locals()
+            utils.run_shell_command('echo "# command used: %(command)s" > %(logfile)s'%locals()) # print command in logfile
+            utils.run_shell_command(cmd)
             with open(logfile, 'r') as lf:
                 for line in lf:
                     line_st = line.strip()
@@ -282,7 +283,7 @@ charge method to estimate the appropriate net charge!!"""
             raise ValueError("No appropriate net charge was found to run antechamber's %s charge method"%c)
     else: # do not regenerate charges
        command = 'antechamber -i %(infile)s -fi %(ext)s -o %(outfile)s -fo mol2 -at %(at)s -du y -pf y > %(logfile)s'%locals()
-       subprocess.check_output(command, shell=True)
+       utils.run_shell_command(command)
 
 def prepare_leap_config_file(script_name, file_r, files_l, file_rl, solvate=False, PBRadii=None, forcefield='leaprc.ff14SB', nna=0, ncl=0, box='parallelepiped', distance=10.0, closeness=1.0, remove=None, model='TIP3P'):
  
@@ -393,8 +394,8 @@ def prepare_ligand(file_r, files_l, file_rl, charge_method='gas'):
         run_antechamber(file_l, 'tmp.mol2', at='gaff', c=charge_method)
 
         shutil.move('tmp.mol2', mol2file)
-        subprocess.check_output('parmchk -i %s -f mol2 -o %s.frcmod'%(mol2file, file_l_prefix), shell=True, executable='/bin/bash')
-        subprocess.check_output('antechamber -i %s -fi mol2 -o %s.pdb -fo pdb > /dev/null'%(mol2file, file_l_prefix), shell=True, executable='/bin/bash')
+        utils.run_shell_command('parmchk -i %s -f mol2 -o %s.frcmod'%(mol2file, file_l_prefix))
+        utils.run_shell_command('antechamber -i %s -fi mol2 -o %s.pdb -fo pdb'%(mol2file, file_l_prefix))
 
         mol2files_l.append(mol2file)
         with open(file_rl, 'a') as ffrl:
