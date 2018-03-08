@@ -689,7 +689,6 @@ tempi=%(temp)s, temp0=%(temp)s,
 ntt=3, gamma_ln=1.0,
 ntb=0,%(igb_line)s
 cut=%(cut)s,
-iwrap=%(iwrap)s,
 ntpr=%(ntpr)s, ntwr=%(ntpr)s, ntwx=%(ntwx)s
 /\n"""%locals())
 
