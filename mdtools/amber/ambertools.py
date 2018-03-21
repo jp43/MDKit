@@ -20,7 +20,7 @@ def get_removed_waters(file_r, files_l, file_c, nwaters_tgt, boxsize, step=0.01,
         file_c = file_r
 
     # determine the number of solute residues
-    nsolutes = int(utils.run_shell_command("echo `cpptraj -p %(file_c)s -mr '*' | awk '{print NF - 1;}'`"%locals()))
+    nsolutes = int(subprocess.check_output("echo `cpptraj -p %(file_c)s -mr '*' | awk '{print NF - 1;}'`"%locals(), shell=True))
 
     print "Targeted number of water residues:", nwaters_tgt
     print "Number of residues found for solute:", nsolutes
@@ -264,9 +264,9 @@ charge method to estimate the appropriate net charge!!"""
 
         for nc in net_charge:
             iserror = False
-            cmd = 'antechamber -i %(infile)s -fi %(ext)s -o %(outfile)s -fo mol2 -at %(at)s -c %(c)s -nc %(nc)s -du y -pf y >> %(logfile)s'%locals()
+            command = 'antechamber -i %(infile)s -fi %(ext)s -o %(outfile)s -fo mol2 -at %(at)s -c %(c)s -nc %(nc)s -du y -pf y >> %(logfile)s'%locals()
             utils.run_shell_command('echo "# command used: %(command)s" > %(logfile)s'%locals()) # print command in logfile
-            utils.run_shell_command(cmd)
+            utils.run_shell_command(command)
             with open(logfile, 'r') as lf:
                 for line in lf:
                     line_st = line.strip()
