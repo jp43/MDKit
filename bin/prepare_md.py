@@ -229,6 +229,9 @@ if args.cut is None:
 
 locals().update(args.__dict__)
 
+# get amber version
+amber_version = utils.check_amber_version()
+
 # save current directory
 pwd = os.getcwd()
 
@@ -287,17 +290,17 @@ if 'prep' in args.step:
         solvate = False
 
     if not args.nwaters_tgt or args.solvent in ['implicit', 'vacuo']:
-        ambertools.prepare_leap_config_file('leap.in', 'protein.pdb', mol2files_l, 'complex.pdb', solvate=solvate, box=args.box, distance=args.boxsize, model=args.water)
+        ambertools.prepare_leap_config_file('leap.in', 'protein.pdb', mol2files_l, 'complex.pdb', solvate=solvate, box=args.box, distance=args.boxsize, model=args.water, version=amber_version)
         utils.run_shell_command('tleap -f leap.in')
 
     else: # args.nwaters_tgt and args.solvent == 'explicit'
         removed_waters, dbest, cbest = ambertools.get_removed_waters('protein.pdb', mol2files_l, 'complex.pdb', args.nwaters_tgt, args.boxsize, step=0.01, ntries=5)
-        ambertools.prepare_leap_config_file('leap.in', 'protein.pdb', mol2files_l, 'complex.pdb', solvate=args.solvent, box=args.box, distance=dbest, closeness=cbest, remove=removed_waters, model=args.water)
+        ambertools.prepare_leap_config_file('leap.in', 'protein.pdb', mol2files_l, 'complex.pdb', solvate=args.solvent, box=args.box, distance=dbest, closeness=cbest, remove=removed_waters, model=args.water, version=amber_version)
         utils.run_shell_command('tleap -f leap.in > leap.log')
 
     if args.addions and args.solvent == 'explicit':
         nna, ncl = ambertools.get_ions_number('leap.log', concentration=0.15)
-        ambertools.prepare_leap_config_file('leap.in', 'protein.pdb', mol2files_l, 'complex.pdb', solvate=solvate, box=args.box, distance=args.boxsize, nna=nna, ncl=ncl, model=args.water)
+        ambertools.prepare_leap_config_file('leap.in', 'protein.pdb', mol2files_l, 'complex.pdb', solvate=solvate, box=args.box, distance=args.boxsize, nna=nna, ncl=ncl, model=args.water, version=amber_version)
         utils.run_shell_command('tleap -f leap.in')
 
     os.chdir(pwd)

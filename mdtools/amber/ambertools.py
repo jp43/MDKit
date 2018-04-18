@@ -285,7 +285,7 @@ charge method to estimate the appropriate net charge!!"""
        command = 'antechamber -i %(infile)s -fi %(ext)s -o %(outfile)s -fo mol2 -at %(at)s -du y -pf y > %(logfile)s'%locals()
        utils.run_shell_command(command)
 
-def prepare_leap_config_file(script_name, file_r, files_l, file_rl, solvate=False, PBRadii=None, forcefield='leaprc.ff14SB', nna=0, ncl=0, box='parallelepiped', distance=10.0, closeness=1.0, remove=None, model='TIP3P'):
+def prepare_leap_config_file(script_name, file_r, files_l, file_rl, solvate=False, PBRadii=None, forcefield='ff14SB', nna=0, ncl=0, box='parallelepiped', distance=10.0, closeness=1.0, remove=None, model='TIP3P', version='14'):
  
     solvation_line = ""
     pbradii_lines = ""
@@ -297,6 +297,25 @@ def prepare_leap_config_file(script_name, file_r, files_l, file_rl, solvate=Fals
     tip3p_models = ['TIP3P', 'TIP3PF', 'POL3', 'QSPCFW']
     tip4p_models = ['TIP4P', 'TIP4PEW']
     spc_models = ['QSPCFW', 'SPC', 'SPCFW']
+
+    if model.upper() in tip3p_models:
+        solvent_model = 'tip3p'
+    elif model.upper() in tip4p_models:
+        solvent_model = 'tip4pew'
+    elif model.upper() in spc_models:
+        solvent_model = 'spce'
+    else:
+        raise ValueError('Solvent model %s unknown, should be one of !'% \
+(model,', '.joined(tip3p_models + tip4p_models + spc_models)))
+
+
+    if version in ['13', '14']:
+        forcefield_line = 'source leaprc.' + forcefield 
+    elif version in ['16', '17']:
+        forcefield_line = 'source leaprc.protein.' + forcefield
+        forcefield_line += '\n' + 'source leaprc.water.' + solvent_model
+    else:
+        raise ValueError("Amber version %s not supported!"%version)
 
     if solvate:
         boxtype = model.upper() + 'BOX'
@@ -311,16 +330,7 @@ def prepare_leap_config_file(script_name, file_r, files_l, file_rl, solvate=Fals
             add_ions_lines += "\naddions complex Na+ %i"%nna
         if ncl > 0:
             add_ions_lines += "\naddions complex Cl- %i"%ncl
-
-        if model.upper() in tip3p_models:
-            suffix_ions_libraries = 'tip3p'
-        elif model.upper() in tip4p_models:
-            suffix_ions_libraries = 'tip4pew'
-        elif model.upper() in spc_models:
-            suffix_ions_libraries = 'spce'
-        else:
-            raise ValueError('Solvent model %s unknown, should be one of !'% \
-(model,', '.joined(tip3p_models + tip4p_models + spc_models)))
+        suffix_ions_libraries = solvent_model
     else:
         suffix_ions_libraries = 'tip3p'
 
@@ -341,7 +351,7 @@ def prepare_leap_config_file(script_name, file_r, files_l, file_rl, solvate=Fals
             name = get_ligand_name(file_l)
             ligand_lines += "\n%(name)s = loadmol2 %(file_l)s\nloadamberparams %(file_l_prefix)s.frcmod"%locals()
         with open(script_name, 'w') as leapf:
-            script ="""source %(forcefield)s
+            script ="""%(forcefield_line)s
 source leaprc.gaff
 loadamberparams frcmod.ionsjc_%(suffix_ions_libraries)s
 loadamberparams frcmod.ionslm_1264_%(suffix_ions_libraries)s%(ligand_lines)s%(pbradii_lines)s
@@ -352,7 +362,7 @@ quit\n"""%locals()
             leapf.write(script)
     else:
         with open(script_name, 'w') as leapf:
-            script ="""source %(forcefield)s
+            script ="""%(forcefield_line)s
 loadoff atomic_ions.lib
 loadamberparams frcmod.ionsjc_%(suffix_ions_libraries)s
 loadamberparams frcmod.ionslm_1264_%(suffix_ions_libraries)s%(pbradii_lines)s
