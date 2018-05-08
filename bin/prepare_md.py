@@ -99,8 +99,8 @@ parser.add_argument('-namd',
 parser.add_argument('-np',
     dest='ncpus',
     type=int,
-    default=1,
-    help="Number of cpus used for the simulations (default: 1)")
+    default=None,
+    help="Number of cpus used for the simulations (default (serial, largemem): 1, default (gpu): 16)")
 
 parser.add_argument('-maxcyc_s',
     dest='maxcyc_s',
@@ -227,6 +227,12 @@ if args.cut is None:
     else:
         args.cut = 999.0
 
+if args.ncpus is None:
+    if args.partition == 'gpu':
+        args.ncpus = 16
+    else:
+        args.ncpus = 8
+
 locals().update(args.__dict__)
 
 # get amber version
@@ -305,18 +311,42 @@ if 'prep' in args.step:
 
     os.chdir(pwd)
 
-script = """#!/bin/bash
-#SBATCH --time=10-00:00
+if args.partition == 'gpu':
+    script = """#!/bin/bash
+#SBATCH --time=100-00:00
 #SBATCH --partition=%(partition)s
 #SBATCH --job-name="md"
 #SBATCH --cpus-per-task=%(ncpus)s
 
 set -e
-setterm -regtabs 4
+\n"""%locals()
+else:
+    script = """#!/bin/bash
+#SBATCH --time=100-00:00
+#SBATCH --partition=%(partition)s
+#SBATCH --job-name="md"
+#SBATCH --ntasks=%(ncpus)s
+#SBATCH --cpus-per-task=1
 
-cd %(workdir_r)s\n"""%locals()
+set -e\n"""%locals()
 
-if args.partition in ['gpu', 'gputest']:
+if args.partition == 'gpu':
+    if amber_version in ['14', '15']:
+        script += """export AMBERHOME=/nfs/r510-2/pwinter/PharmaApps/build/amber/gpu/amber14
+export CUDA_HOME=/usr/local/cuda-9.1
+export PATH=$CUDA_HOME/bin:$PATH
+export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
+source $AMBERHOME/amber.sh
+export CUDA_VISIBLE_DEVICES=`/usr/bin/select_gpu.py`
+\n"""%locals()
+    elif amber_version in ['16', '17']:
+        script += """export AMBERHOME=/nfs/r510-2/pwinter/PharmaApps/build/amber/amber16/gpu/amber16
+export CUDA_HOME=/usr/local/cuda-9.1
+export PATH=$CUDA_HOME/bin:$PATH
+export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
+source $AMBERHOME/amber.sh
+export CUDA_VISIBLE_DEVICES=`/usr/bin/select_gpu.py`
+\n"""%locals()
     exe = 'pmemd.cuda'
 else:
     if args.ncpus == 1:
@@ -325,6 +355,8 @@ else:
       exe = 'mpirun -np %(ncpus)s sander.MPI'%locals()
     else:
         raise ValueError('Number of CPUS (-np) should be greater or equal to 1')
+
+script += "cd %(workdir_r)s\n"""%locals()
 
 # ------- RESTRAINTS ---------
 if args.restraints:

@@ -96,3 +96,17 @@ class Reader(object):
 
 class Writer(object):
     pass
+
+
+def split_file_rl(file_r, file_l, file_rl, ligname):
+
+    with open(file_rl, 'r') as frl:
+
+        with open(file_r, 'w') as fr:
+            with open(file_l, 'w') as fl:
+
+                for line in frl:
+                    if line.startswith(('HETATM', 'ATOM')) and line[17:20].strip() == ligname:
+                        fl.write(line)
+                    else:
+                        fr.write(line)

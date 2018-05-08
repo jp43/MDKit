@@ -309,7 +309,7 @@ def prepare_leap_config_file(script_name, file_r, files_l, file_rl, solvate=Fals
 (model,', '.joined(tip3p_models + tip4p_models + spc_models)))
 
 
-    if version in ['13', '14']:
+    if version in ['14', '15']:
         forcefield_line = 'source leaprc.' + forcefield 
     elif version in ['16', '17']:
         forcefield_line = 'source leaprc.protein.' + forcefield
