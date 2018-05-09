@@ -27,7 +27,7 @@ def do_clustering(files_r, files_l, mode='clustering', cutoff=None, nclusters=No
     os.mkdir(workdir)
 
     # get full path of ligand files
-    if len(files_l) > 2:
+    if len(files_l) >= 2:
         files_l = [os.path.abspath(file_l) for file_l in files_l]
     else:
         raise ValueError('At least 2 ligand files are required for clustering')
