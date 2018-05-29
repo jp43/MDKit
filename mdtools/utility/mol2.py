@@ -3,6 +3,8 @@ import sys
 import shutil
 import subprocess
 
+from utils import center_of_geometry 
+
 # recognized sections
 known_section = ['MOLECULE', 'ATOM', 'BOND', 'SUBSTRUCTURE']
 
@@ -130,7 +132,7 @@ class Writer(object):
                                 newline = line
                             ff.write(newline)
 
-def update_mol2file(inputfile, outputfile, ADupdate=None, multi=False, ligname=None, unique=False, mask=None, remove=None, last=None):
+def update_mol2file(inputfile, outputfile, ADupdate=None, multi=False, ligname=None, unique=False, mask=None, remove=None, last=None, shift=None):
 
     f = Reader(inputfile)
     structs = f.readlines()
@@ -140,6 +142,8 @@ def update_mol2file(inputfile, outputfile, ADupdate=None, multi=False, ligname=N
     for struct in structs:
         if ADupdate:
             struct = update_AD_output_from_original_struct(struct, ADupdate)
+        if shift is not None:
+            struct = shift_coordinates(struct, shift)
         if ligname:
             struct = update_ligand_name(struct, ligname)
         if unique:
@@ -182,6 +186,26 @@ def pdb2mol2(inputfile, outputfile, sample):
 
     Writer().write(outputfile, new_struct)
 
+def get_graph(inputfile):
+
+    import networkx as nx
+
+    f = Reader(inputfile)
+    struct = f.next()
+    f.close()
+
+    G = nx.Graph()
+    for line in struct['ATOM']:
+        G.add_node(int(line[0]), type=line[-4][0])
+
+    for line in struct['BOND']:
+        line_s = line.split()
+        node_1 = int(line_s[1])
+        node_2 = int(line_s[2])
+        G.add_edge(node_1, node_2)
+
+    return G
+
 def update_ligand_name(struct, ligname):
 
     new_struct = struct
@@ -194,6 +218,25 @@ def update_ligand_name(struct, ligname):
             new_struct['SUBSTRUCTURE'][idx] = line.replace(ligname_p, ligname)
 
     return new_struct
+
+def shift_coordinates(struct, shift):
+
+    coords = []
+    for line in struct['ATOM']:
+        coords.append(map(float, line[2:5]))
+    cog = center_of_geometry(coords)
+
+    center_x, center_y, center_z = cog - shift
+
+    new_struct = struct
+    for idx, line in enumerate(struct['ATOM']):
+        x, y, z = map(float, line[2:5])
+        new_struct['ATOM'][idx][2] = "%.4f"%(x-center_x)
+        new_struct['ATOM'][idx][3] = "%.4f"%(y-center_y)
+        new_struct['ATOM'][idx][4] = "%.4f"%(z-center_z)
+
+    return new_struct
+
 
 def is_unique_name(struct):
 

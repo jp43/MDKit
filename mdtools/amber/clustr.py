@@ -159,7 +159,7 @@ def do_amber_clustering(files_r, files_l, mode, cutoff=None, nclusters=None, cle
         if not mask:
             mask = ':%s&!@H='%ligname
         if not maskfit:
-            maskfit = '@CA,C,N,O&!:%s'%ligname 
+            maskfit = '@CA,C,N&!:%s'%ligname 
 
     # (B) Run tleap
     prepare_leap_config_file('leap.in', files_r, files_l, files_rl)
