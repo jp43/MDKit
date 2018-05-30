@@ -83,8 +83,8 @@ parser.add_argument('-igb',
 parser.add_argument('-iwrap',
     dest='iwrap',
     type=int,
-    default=1,
-    help="Value of iwrap for production run (default: 1, i.e., the coordinates written to the restart and trajectory files are wrapped into a primary box)")
+    default=0,
+    help="Value of iwrap for production run (default: 1, i.e., the coordinates written to the restart and trajectory files are not wrapped into a primary box)")
 
 parser.add_argument('-lb',
     dest='lower_bound',

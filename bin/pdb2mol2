@@ -25,8 +25,16 @@ parser.add_argument('-o',
 
 args = parser.parse_args()
 
-pdbfile = args.pdbfile
-mol2file_ref = args.mol2file_ref
+if os.path.isfile(args.pdbfile):
+    pdbfile = args.pdbfile
+else:
+    raise ValueError(".pdb file %s does not exist!"%args.pdbfile)
+
+if os.path.isfile(args.mol2file_ref):
+    mol2file_ref = args.mol2file_ref
+else:
+    raise ValueError("ref .mol2 file %s does not exist!"%args.mol2file_ref)
+
 mol2file_out = args.mol2file_out
 
 def get_neighbors(graph, node, data=False):
@@ -62,6 +70,7 @@ mol2file_ref_uniq =  base_ref + '_uniq.mol2'
 # make rough mol2 file from pdb with babel
 subprocess.check_output('babel %(pdbfile)s %(base)s.mol2 &>/dev/null'%locals(), shell=True, executable='/bin/bash')
 mol2.update_mol2file(base+'.mol2', mol2file_query_uniq, unique=True, remove=['H', 'h']) # remove hydrogens and give uique names to heavy atoms
+os.remove(base+'.mol2')
 
 # make the atoms unique for the original structure
 mol2.update_mol2file(mol2file_ref, mol2file_ref_uniq, unique=True)
@@ -108,12 +117,9 @@ for idx, line_q in enumerate(struct_q['ATOM']):
             new_struct_q['ATOM'][idx][1] = line_r[1]
 
 mol2.Writer().write(mol2file_query_uniq, new_struct_q)
-
-# Make sure every heavy atom in the original and targeted files are the same
 mol2.update_mol2file(mol2file_query_uniq, base+'_uniq.mol2', ADupdate=base_ref+'_uniq.mol2', unique=True)
 mol2.arrange_hydrogens(base+'_uniq.mol2', mol2file_out) # arranging 
 
 # remove intermediate files
-os.remove(base+'.mol2')
 os.remove(base+'_uniq.mol2')
 os.remove(mol2file_ref_uniq)

@@ -196,7 +196,9 @@ def get_graph(inputfile):
 
     G = nx.Graph()
     for line in struct['ATOM']:
-        G.add_node(int(line[0]), type=line[-4][0])
+        sybyl_atom_type = line[5]
+        atom_type = sybyl_atom_type.split('.')[0].upper()
+        G.add_node(int(line[0]), type=atom_type)
 
     for line in struct['BOND']:
         line_s = line.split()
