@@ -9,6 +9,7 @@ import shlex
 import numpy as np
 
 from mdtools.utility import utils
+from mdtools.namd import namdtools
 from mdtools.amber import ambertools
 
 # ----- SET CONSTANTS ------
@@ -42,8 +43,9 @@ parser.add_argument('-l',
 
 parser.add_argument('-addions',
     dest='addions',
-    action='store_true',
-    help="Add ions (requires explicit solvent)")
+    type=float,
+    default=0.0,
+    help="Add specific concentration of ions (Na+, Cl-) and neutralize the system")
 
 parser.add_argument('-box',
     dest='box',
@@ -203,8 +205,8 @@ parser.add_argument('-st',
 
 parser.add_argument('-temp',
     dest='temp',
-    default=300.0,
-    help="temperature (default: 300.0K)")
+    default=298.0,
+    help="temperature (default: 298.0K)")
 
 parser.add_argument('-w',
     dest='workdir',
@@ -304,10 +306,16 @@ if 'prep' in args.step:
         ambertools.prepare_leap_config_file('leap.in', 'protein.pdb', mol2files_l, 'complex.pdb', solvate=args.solvent, box=args.box, distance=dbest, closeness=cbest, remove=removed_waters, model=args.water, version=amber_version)
         utils.run_shell_command('tleap -f leap.in > leap.log')
 
-    if args.addions and args.solvent == 'explicit':
-        nna, ncl = ambertools.get_ions_number('leap.log', concentration=0.15)
+    if args.addions != 0.0 and args.solvent == 'explicit':
+        nna, ncl = ambertools.get_ions_number('leap.log', concentration=args.addions)
         ambertools.prepare_leap_config_file('leap.in', 'protein.pdb', mol2files_l, 'complex.pdb', solvate=solvate, box=args.box, distance=args.boxsize, nna=nna, ncl=ncl, model=args.water, version=amber_version)
         utils.run_shell_command('tleap -f leap.in')
+
+    if args.namd:
+        ligname = []
+        for file_l in mol2files_l:
+            ligname.append(ambertools.get_ligand_name(file_l))
+        namdtools.create_constrained_pdbfile('namd_equil_res.pdb', ligname)
 
     os.chdir(pwd)
 
