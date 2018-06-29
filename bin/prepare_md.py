@@ -32,7 +32,7 @@ parser.add_argument('-r',
     dest='file_r',
     required=False,
     default=None,
-    help="PDB input file for structure (1 structure)")
+    help="PDB input file for protein (1 structure)")
 
 parser.add_argument('-l',
     dest='file_l',
@@ -70,6 +70,11 @@ parser.add_argument('-cut',
     default=None,
     help="Cutoff for non-bonded interactions in angstroms (default (explicit): 10.0, default (implicit, vacuo): 999.0)")
 
+parser.add_argument('-hem',
+    dest='hem',
+    action='store_true',
+    help="Skip generation of charges for unrecognized atoms with antechamber (similar to tutorial on HEM group: http://ambermd.org/tutorials/advanced/tutorial20/mcpbpy_heme.htm)")
+
 parser.add_argument('-keeph',
     dest='keeph',
     action='store_true',
@@ -80,7 +85,7 @@ parser.add_argument('-igb',
     dest='igb',
     type=int,
     default=5,
-    help="GBSA index (used with implicit solvent)")
+    help="GBSA index (used with implicit solvent, default: 5)")
 
 parser.add_argument('-iwrap',
     dest='iwrap',
@@ -288,7 +293,7 @@ if 'prep' in args.step:
             files_l_new.append(file_l_new)
 
         files_l = files_l_new
-        mol2files_l = ambertools.prepare_ligand('protein.pdb', files_l, 'complex.pdb', charge_method=args.charge_method)
+        mol2files_l = ambertools.prepare_ligand('protein.pdb', files_l, 'complex.pdb', charge_method=args.charge_method, version=amber_version, skip_unrecognized_atoms=args.hem)
     else:
         mol2files_l = None
 

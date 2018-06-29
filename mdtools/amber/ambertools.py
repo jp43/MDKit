@@ -248,7 +248,7 @@ def correct_hydrogen_names(file_r, keep_hydrogens=False):
     shutil.move('tmp.pdb', file_r)
     #print "Number of atom lines removed: %s" %nremoved
 
-def run_antechamber(infile, outfile, at='gaff', c='gas', logfile='antechamber.log'):
+def run_antechamber(infile, outfile, at='gaff', c='gas', logfile='antechamber.log', version='14', skip_unrecognized_atoms=False):
     """ use H++ idea of running antechamber multiple times with bcc's 
 charge method to estimate the appropriate net charge!!"""
 
@@ -258,15 +258,29 @@ charge method to estimate the appropriate net charge!!"""
     max_net_charge = 30
     net_charge = [0]
 
+    unrecognized_atom = False
     if c and c.lower() != 'none':
         for nc in range(max_net_charge):
             net_charge.extend([nc+1,-(nc+1)])
 
         for nc in net_charge:
             iserror = False
-            command = 'antechamber -i %(infile)s -fi %(ext)s -o %(outfile)s -fo mol2 -at %(at)s -c %(c)s -nc %(nc)s -du y -pf y >> %(logfile)s'%locals()
+            if version in ['14', '15']:
+                command = 'antechamber -i %(infile)s -fi %(ext)s -o %(outfile)s -fo mol2 -at %(at)s -c %(c)s -nc %(nc)s -du y -pf y &>> %(logfile)s'%locals()
+            elif version in ['16', '17']:
+                command = 'antechamber -i %(infile)s -fi %(ext)s -o %(outfile)s -fo mol2 -at %(at)s -c %(c)s -nc %(nc)s -du y -pf y -dr no &>> %(logfile)s'%locals()  
             utils.run_shell_command('echo "# command used: %(command)s" > %(logfile)s'%locals()) # print command in logfile
-            utils.run_shell_command(command)
+            try:
+                utils.run_shell_command(command)
+            except subprocess.CalledProcessError:
+                with open(logfile, 'r') as lf:
+                    for line in lf:
+                        if line.startswith("No Gasteiger parameter for atom"):
+                            unrecognized_atom = True
+                if unrecognized_atom and skip_unrecognized_atoms:
+                    break 
+                else:
+                    raise
             with open(logfile, 'r') as lf:
                 for line in lf:
                     line_st = line.strip()
@@ -281,7 +295,8 @@ charge method to estimate the appropriate net charge!!"""
                     break
         if iserror:
             raise ValueError("No appropriate net charge was found to run antechamber's %s charge method"%c)
-    else: # do not regenerate charges
+
+    if c is None or c.lower() == 'none' or (unrecognized_atom and skip_unrecognized_atoms): # do not regenerate charges
        command = 'antechamber -i %(infile)s -fi %(ext)s -o %(outfile)s -fo mol2 -at %(at)s -du y -pf y > %(logfile)s'%locals()
        utils.run_shell_command(command)
 
@@ -388,7 +403,7 @@ def prepare_receptor(file_r_out, file_r, keep_hydrogens=False):
     # remove atoms and hydrogen with no name recognized by AMBER
     correct_hydrogen_names(file_r_out, keep_hydrogens=keep_hydrogens)
 
-def prepare_ligand(file_r, files_l, file_rl, charge_method='gas'):
+def prepare_ligand(file_r, files_l, file_rl, charge_method='gas', version='14', skip_unrecognized_atoms=False):
 
     if isinstance(files_l, basestring):
         files_l = [files_l]
@@ -401,11 +416,14 @@ def prepare_ligand(file_r, files_l, file_rl, charge_method='gas'):
         file_l_prefix = os.path.basename(file_l_prefix)
 
         mol2file = file_l_prefix + '.mol2'
-        run_antechamber(file_l, 'tmp.mol2', at='gaff', c=charge_method)
+        run_antechamber(file_l, 'tmp.mol2', at='gaff', c=charge_method, version=version, skip_unrecognized_atoms=skip_unrecognized_atoms)
 
         shutil.move('tmp.mol2', mol2file)
         utils.run_shell_command('parmchk -i %s -f mol2 -o %s.frcmod'%(mol2file, file_l_prefix))
-        utils.run_shell_command('antechamber -i %s -fi mol2 -o %s.pdb -fo pdb'%(mol2file, file_l_prefix))
+        if version in ['14', '15']:
+            utils.run_shell_command('antechamber -i %s -fi mol2 -o %s.pdb -fo pdb &> /dev/null'%(mol2file, file_l_prefix))
+        elif version in ['16', '17']:
+            utils.run_shell_command('antechamber -i %s -fi mol2 -o %s.pdb -fo pdb -dr no &> /dev/null'%(mol2file, file_l_prefix))
 
         mol2files_l.append(mol2file)
         with open(file_rl, 'a') as ffrl:

@@ -8,7 +8,7 @@ required_amber_programs = ['tleap', 'antechamber', 'parmchk']
 
 def run_shell_command(cmd):
     try:
-        subprocess.check_output(cmd, shell=True, executable='/bin/bash')
+        output = subprocess.check_output(cmd, shell=True, executable='/bin/bash')
     except subprocess.CalledProcessError as e:
         print e.output
         raise
