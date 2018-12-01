@@ -6,18 +6,63 @@ import argparse
 
 import ambertools
 
-def do_clustering(files_r, files_l, mode='clustering', cutoff=None, nclusters=None, cleanup=True, mask=None, maskfit=None):
-    """
-    do_clustering(files_r, files_l=None)
+def cluster_trajectory(crdfile, prmtop, cutoff=None, nclusters=None, cleanup=True, mask=None, maskfit=None, flo=''):
+    # get current directory
+    curdir = os.getcwd()
+
+    # create directory where minimization will be performed
+    workdir = 'clustering'
+    shutil.rmtree(workdir, ignore_errors=True)
+    os.mkdir(workdir)
+
+    if os.path.isfile(crdfile):
+        crdfile_abs = os.path.abspath(crdfile)
+    else:
+        raise ValueError("No crd file found: %s"%crdfile)
+
+    if os.path.isfile(prmtop):
+        prmtop_abs = os.path.abspath(prmtop)
+    else:
+        raise ValueError("No prmtop file found: %s"%prmtop)
+
+    # change working directory
+    os.chdir(workdir)
+
+    # run cpptraj
+    prepare_cpptraj_config_file_traj('cpptraj.in', crdfile_abs, prmtop_abs, cutoff=cutoff, nclusters=nclusters, mask=mask, maskfit=maskfit, flo=flo)
+    subprocess.check_output('cpptraj -i cpptraj.in > cpptraj.log', shell=True, executable='/bin/bash')
+    os.chdir(curdir)
+
+def prepare_cpptraj_config_file_traj(filename, crdfile, prmtop, cutoff=None, nclusters=None, mask=None, maskfit=None, flo=''):
+
+    # write cpptraj config file to cluster frames
+    with open(filename, 'w') as file:
+        if cutoff and nclusters:
+            ValueError('Both cutoff value and nclusters provided. Only one of those parameters should be given!')
+        elif cutoff:
+            option = " epsilon %s "%cutoff
+        elif nclusters:
+            option = " clusters %s"%nclusters
+        else:
+            option = ""
+        contents = """parm %(prmtop)s
+trajin %(crdfile)s %(flo)s
+strip :WAT,Na+,Cl-
+rms first %(maskfit)s
+cluster %(mask)s nofit summary summary.dat info info.dat repout frame repfmt pdb%(option)s\n"""% locals()
+        file.write(contents)
+
+def cluster_poses(files_r, files_l, mode='clustering', cutoff=None, nclusters=None, cleanup=True, mask=None, maskfit=None):
+    """ 
+    cluster_poses(files_r, files_l)
 
     Performs Amber's cpptraj clustering
 
     Parameters
     ----------
     files_r: filenames for receptor (.pdb)
-    files_l: list of filenames (.mol2) for ligand, when ligand-protein complex
+    files_l: list of filenames (.mol2) for ligand, when ligand-protein complex"""
 
-"""
     # get current directory
     curdir = os.getcwd()
 
@@ -57,6 +102,7 @@ def do_clustering(files_r, files_l, mode='clustering', cutoff=None, nclusters=No
     # amber clustering
     do_amber_clustering(new_files_r, files_l, mode, cutoff=cutoff, nclusters=nclusters, cleanup=cleanup, mask=mask, maskfit=maskfit)
     os.chdir(curdir)
+
 
 def prepare_leap_config_file(filename, files_r, files_l, files_rl, forcefield='leaprc.ff14SB'):
 
@@ -190,32 +236,20 @@ def create_arg_parser():
         type=str,
         dest='files_r',
         nargs='+',
-        required=True,
+        default=None,
         help = 'Receptor coordinate file(s): .pdb')
-
-    parser.add_argument('-rmsd',
-        type=str,
-        dest='cutoff',
-        default=None,
-        help = 'RMSD cutoff for clustering analysis')
-
-    parser.add_argument('-n',
-        type=str,
-        dest='nclusters',
-        default=None,
-        help = 'Number of clusters for clustering analysis')
-
-    parser.add_argument('-mode',
-        type=str,
-        dest='mode',
-        default='clustering',
-        help = 'Cpptraj mode (clustering, pca, fit, rmsd)')
 
     parser.add_argument('-cleanup',
         dest='cleanup',
         action='store_true',
         default=False,
         help = 'Remove intermediate files')
+
+    parser.add_argument('-flo',
+        type=str,
+        dest='flo',
+        default='',
+        help = 'First, last and offset (flo) for trajin with trajectory')
 
     parser.add_argument('-m',
         dest='mask',
@@ -227,6 +261,36 @@ def create_arg_parser():
         default='',
         help = 'Mask used for fitting prior to clustering or pca')
 
+    parser.add_argument('-mode',
+        type=str,
+        dest='mode',
+        default='clustering',
+        help = 'Cpptraj mode (clustering, pca, fit, rmsd)')
+
+    parser.add_argument('-n',
+        type=str,
+        dest='nclusters',
+        default=None,
+        help = 'Number of clusters for clustering analysis')
+
+    parser.add_argument('-p',
+        type=str,
+        dest='topfile',
+        default=None,
+        help = 'Topology file: .prmtop (used with -traj flag)')
+
+    parser.add_argument('-rmsd',
+        type=str,
+        dest='cutoff',
+        default=None,
+        help = 'RMSD cutoff for clustering analysis')
+
+    parser.add_argument('-y',
+        type=str,
+        dest='crdfile',
+        default=None,
+        help = 'Trajectory file: .mdcrd (used with -traj flag)')
+
     return parser
 
 def run():
@@ -234,4 +298,17 @@ def run():
     parser = create_arg_parser()
     args = parser.parse_args()
 
-    do_clustering(args.files_r, args.files_l, mode=args.mode, cutoff=args.cutoff, nclusters=args.nclusters, cleanup=args.cleanup, mask=args.mask, maskfit=args.maskfit)
+    if args.crdfile:
+        if not args.topfile:
+            raise IOError("No .prmtop file provided (-p option)")
+        elif not args.mask or not args.maskfit:
+            raise IOError("No mask provided (-m and -mf option)")
+        else:
+            print "Clustering trajectory using Amber..."
+            cluster_trajectory(args.crdfile, args.topfile, cutoff=args.cutoff, nclusters=args.nclusters, cleanup=args.cleanup, mask=args.mask, maskfit=args.maskfit, flo=args.flo)
+    elif args.files_r:
+        if not args.files_r:
+            raise IOError("No receptor files provided (-r option)")
+        else:
+            print "Clustering poses using Amber..."
+            cluster_poses(args.files_r, args.files_l, mode=args.mode, cutoff=args.cutoff, nclusters=args.nclusters, cleanup=args.cleanup, mask=args.mask, maskfit=args.maskfit)

@@ -89,7 +89,7 @@ def get_solvent_mask(pdbfile, residues='WAT'):
 
     return solvent_mask
 
-def get_ions_number(logfile, concentration=0.15):
+def get_ions_number(logfile, concentration=0.15, version='14'):
 
     # Nions = Cions * Nwater * 1/55.5 where 55.5 M is the concentration of pure water
 
@@ -279,8 +279,6 @@ charge method to estimate the appropriate net charge!!"""
                             unrecognized_atom = True
                 if unrecognized_atom and skip_unrecognized_atoms:
                     break 
-                else:
-                    raise
             with open(logfile, 'r') as lf:
                 for line in lf:
                     line_st = line.strip()

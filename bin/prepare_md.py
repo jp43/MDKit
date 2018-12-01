@@ -14,7 +14,7 @@ from mdtools.amber import ambertools
 
 # ----- SET CONSTANTS ------
 # constants
-kT = 0.593 # kT at 25C (298 K) in kcal/mol
+kT = 0.5924849 # kT at 25C (298.15 K) in kcal/mol
 na = 6.022140857e23 # Avogadro number
 
 # units conversions
@@ -25,6 +25,9 @@ ps2s = 1e-12
 
 # steps included in MD preparation
 known_steps = ['prep', 'min', 'nvt', 'npt', 'md']
+
+# born radii for each implicit solvation scheme
+known_pbradii = {1: 'mbondi', 2: 'mbondi2', 5: 'mbondi2', 7: 'bondi', 8: 'mbondi3'}
 
 parser = argparse.ArgumentParser(description="Prepare MD simulations with amber")
 
@@ -46,6 +49,12 @@ parser.add_argument('-addions',
     type=float,
     default=0.0,
     help="Add specific concentration of ions (Na+, Cl-) and neutralize the system")
+
+parser.add_argument('-smd',
+    dest='smd',
+    action='store_true',
+    default=False,
+    help="Prepare files to run steered MD (namd only)")
 
 parser.add_argument('-box',
     dest='box',
@@ -73,7 +82,7 @@ parser.add_argument('-cut',
 parser.add_argument('-hem',
     dest='hem',
     action='store_true',
-    help="Skip generation of charges for unrecognized atoms with antechamber (similar to tutorial on HEM group: http://ambermd.org/tutorials/advanced/tutorial20/mcpbpy_heme.htm)")
+    help="Skip generation of charges for unrecognized atoms with antechamber (similar to tutorial on HEM group: http://ambermd.org/tutorials/advanced/tutorial20/mcpbpy_heme.html)")
 
 parser.add_argument('-keeph',
     dest='keeph',
@@ -149,10 +158,11 @@ parser.add_argument('-ntpr',
     default=50,
     help="Production: ntpr and ntwr for restart files (default: 50)")
 
-parser.add_argument('-ntwx',
-    dest='ntwx',
-    default=0,
-    help="Production: ntwx (default: 0)")
+parser.add_argument('-nwaters',
+    dest='nwaters_tgt',
+    type=int,
+    default=None,
+    help="Number of waters")
 
 parser.add_argument('-ntwprt',
     dest='ntwprt',
@@ -160,11 +170,10 @@ parser.add_argument('-ntwprt',
     default=0,
     help="Atoms to include in trajectory file, 0: include solvent, 1: no solvent (default: 0)")
 
-parser.add_argument('-nwaters',
-    dest='nwaters_tgt',
-    type=int,
-    default=None,
-    help="Number of waters")
+parser.add_argument('-ntwx',
+    dest='ntwx',
+    default=0,
+    help="Production: ntwx (default: 0)")
 
 parser.add_argument('-p',
     dest='partition',
@@ -303,7 +312,11 @@ if 'prep' in args.step:
         solvate = False
 
     if not args.nwaters_tgt or args.solvent in ['implicit', 'vacuo']:
-        ambertools.prepare_leap_config_file('leap.in', 'protein.pdb', mol2files_l, 'complex.pdb', solvate=solvate, box=args.box, distance=args.boxsize, model=args.water, version=amber_version)
+        if args.solvent == 'implicit':
+            PBRadii = known_pbradii[args.igb]
+        else:
+            PBRadii = None
+        ambertools.prepare_leap_config_file('leap.in', 'protein.pdb', mol2files_l, 'complex.pdb', solvate=solvate, box=args.box, distance=args.boxsize, model=args.water, version=amber_version, PBRadii=PBRadii)
         utils.run_shell_command('tleap -f leap.in')
 
     else: # args.nwaters_tgt and args.solvent == 'explicit'
@@ -318,9 +331,12 @@ if 'prep' in args.step:
 
     if args.namd:
         ligname = []
-        for file_l in mol2files_l:
-            ligname.append(ambertools.get_ligand_name(file_l))
-        namdtools.create_constrained_pdbfile('namd_equil_res.pdb', ligname)
+        if args.file_l:
+            for file_l in mol2files_l:
+                ligname.append(ambertools.get_ligand_name(file_l))
+        if args.smd:
+            namdtools.create_steered_constrained_pdbfile('smd_ref.pdb', 'start.pdb', ligname)
+        namdtools.create_constrained_pdbfile('namd_equil_res.pdb', 'start.pdb', ligname)
 
     os.chdir(pwd)
 
@@ -340,6 +356,7 @@ else:
 #SBATCH --job-name="md"
 #SBATCH --ntasks=%(ncpus)s
 #SBATCH --cpus-per-task=1
+#SBATCH --nodes=1
 
 set -e\n"""%locals()
 
@@ -405,7 +422,7 @@ ntpr=100,
 ntb=1,
 cut=%(cut)s,
 ntr=1,restraint_wt=100.0,
-restraintmask='!%(solvent_mask)s'
+restraintmask='!%(solvent_mask)s&!@H='
 /\n"""%locals())
 
         with open(workdir+'/min2.in', 'w') as min2f:
@@ -432,9 +449,11 @@ cd ..\n"""%locals()
 
     elif args.solvent in ['vacuo', 'implicit']:
 
+        # input files follow examples at: http://ambermd.org/tutorials/basic/tutorial1/section3.htm and
+        # http://ambermd.org/tutorials/basic/tutorial1/section4.htm
         if args.solvent == 'vacuo':
             title = 'In-Vacuo minimization'
-            igb_line = ''
+            igb_line = '\nigb=0,'
         elif args.solvent == 'implicit':
             title = 'Minimization (implicit solvent)'
             igb_line = '\nigb=%i,'%args.igb
@@ -722,7 +741,7 @@ done\n"""%locals()
     else: # implicit solvent
         if args.solvent == 'vacuo':
             title = 'MD Production (In-Vacuo)'
-            igb_line = ''
+            igb_line = '\nigb=0,'
         elif args.solvent == 'implicit':
             title = 'MD Production (implicit solvent)'
             igb_line = '\nigb=%i,'%args.igb

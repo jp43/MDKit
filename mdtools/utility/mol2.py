@@ -127,7 +127,7 @@ class Writer(object):
                         ff.write('@<TRIPOS>'+section+'\n')
                         for line in struct[section]:
                             if section == 'ATOM':
-                                newline = '%7s %-5s    %9s %9s %9s %-5s    %2s %-5s     %8s\n'%tuple(line)
+                                newline = '%7s %-5s    %9s %9s %9s %-5s    %2s %-5s    %9s\n'%tuple(line)
                             else:
                                 newline = line
                             ff.write(newline)
@@ -154,7 +154,7 @@ def update_mol2file(inputfile, outputfile, ADupdate=None, multi=False, ligname=N
 
     Writer().write(outputfile, updated_structs, multi=multi, last=last)
 
-def pdb2mol2(inputfile, outputfile, sample):
+def pdb2mol2(inputfile, outputfile, sample, keep_charges_from=None):
 
     # get atom lines in PDB:
     atom_lines_pdb = []
@@ -184,6 +184,20 @@ def pdb2mol2(inputfile, outputfile, sample):
         if not is_atom:
             raise IOError("Mol2 atom name not found in PDB file, check your input files!")
 
+    if keep_charges_from:
+        f_ref = Reader(keep_charges_from)
+        struct_charges = f_ref.readlines()[0]
+        f_ref.close()
+
+        new_struct['MOLECULE'] = struct_charges['MOLECULE']
+        for idx, line in enumerate(struct['ATOM']):
+            atom_name_mol2 = line[1].lower()
+            atom_name_mol2_charges = struct_charges['ATOM'][idx][1].lower()
+            if atom_name_mol2 != atom_name_mol2_charges:
+                raise ValueError("Atom names in ref mol2file for charges does not fit names in sample!") 
+            else:
+                new_struct['ATOM'][idx][-1] = struct_charges['ATOM'][idx][-1]
+
     Writer().write(outputfile, new_struct)
 
 def get_graph(inputfile):
@@ -210,11 +224,12 @@ def get_graph(inputfile):
 
 def update_ligand_name(struct, ligname):
 
+    ligname_p = struct['ATOM'][0][-2]
+
     new_struct = struct
     for idx, line in enumerate(struct['ATOM']):
         new_struct['ATOM'][idx][-2] = ligname
 
-    ligname_p = new_struct['ATOM'][0][-2]
     if 'SUBSTRUCTURE' in struct:
         for idx, line in enumerate(struct['SUBSTRUCTURE']):
             new_struct['SUBSTRUCTURE'][idx] = line.replace(ligname_p, ligname)
@@ -236,6 +251,17 @@ def shift_coordinates(struct, shift):
         new_struct['ATOM'][idx][2] = "%.4f"%(x-center_x)
         new_struct['ATOM'][idx][3] = "%.4f"%(y-center_y)
         new_struct['ATOM'][idx][4] = "%.4f"%(z-center_z)
+
+    return new_struct
+
+def replace_coordinates(struct, coords):
+
+    new_struct = struct
+    for idx, line in enumerate(struct['ATOM']):
+        x, y, z = coords[idx]
+        new_struct['ATOM'][idx][2] = "%.4f"%x
+        new_struct['ATOM'][idx][3] = "%.4f"%y
+        new_struct['ATOM'][idx][4] = "%.4f"%z
 
     return new_struct
 
@@ -432,7 +458,7 @@ def get_atoms_names(filename):
                 atoms_names.append(line_s[1])
     return atoms_names
 
-def get_coordinates(filename):
+def get_coordinates(filename, keep_h=True):
 
     coords = []
     with open(filename, 'r') as mol2f:
@@ -444,5 +470,6 @@ def get_coordinates(filename):
                 is_structure = False
             elif is_structure:
                 line_s = line.split()
-                coords.append(map(float,line_s[2:5]))
+                if keep_h or line_s[5][0].lower() != 'h':
+                    coords.append(map(float,line_s[2:5]))
     return coords

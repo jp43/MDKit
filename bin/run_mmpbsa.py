@@ -21,7 +21,7 @@ class MMPBSAWorker(object):
 /
 &pb 
   istrng=0.0, inp=1, cavity_surften=0.0072, cavity_offset=0, 
-  prbrad=1.6, radiopt=1,
+  prbrad=1.6,
 /   
 &gb
   igb=5, saltcon=0.0, surften=0.005, surfoff=0,
