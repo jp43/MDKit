@@ -97,7 +97,6 @@ def do_amber_minimization_after_docking(file_r, files_l, charge_method=None, ncy
     file_l_tmp = 'ligand.mol2'
     for idx, file_l in enumerate(files_l):
         shutil.copyfile(file_l, file_l_tmp)
-
         if idx == 0:
             # regenerate the charges
             ambertools.prepare_ligand(file_r, file_l_tmp, 'complex.pdb', charge_method=charge_method, version=version)

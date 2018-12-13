@@ -3,6 +3,9 @@ import sys
 import shutil
 import subprocess
 
+import clustering
+import numpy as np
+
 from mdtools.utility import reader
 from mdtools.utility import utils
 
@@ -69,6 +72,67 @@ def get_removed_waters(file_r, files_l, file_c, nwaters_tgt, boxsize, step=0.01,
     removed_waters = [nsolutes + nwaters_best - diff_best + idx + 1 for idx in range(diff_best)]
     return removed_waters, dbest, cbest
 
+def compute_rmsd(files_r, files_l, file_r_ref, file_l_ref, rmsddir='rmsd', ligname='LIG', cleanup=True):
+
+    files_r_abs = [os.path.abspath(file_r) for file_r in files_r]
+    files_l_abs = [os.path.abspath(file_l) for file_l in files_l]
+
+    file_r_ref_abs = os.path.abspath(file_r_ref)
+    file_l_ref_abs = os.path.abspath(file_l_ref)
+
+    nfiles_r = len(files_r_abs)
+    nfiles_l = len(files_l_abs)
+
+    if nfiles_r != nfiles_l:
+        raise ValueError('Not the same number of files for receptors and ligands')
+
+    pwd = os.getcwd()
+
+    shutil.rmtree(rmsddir, ignore_errors=True)
+    os.mkdir(rmsddir)
+    os.chdir(rmsddir)
+
+    # prepare ref receptor 
+    prepare_receptor('protein.pdb', file_r_ref_abs)
+    shutil.copyfile(file_l_ref_abs, 'ligand.mol2')
+    prepare_ligand('protein.pdb', 'ligand.mol2', 'protein-ligand.pdb')
+    
+    os.mkdir('PDB')
+    files_l_new = ['PDB/ligand-%i.mol2'%(idx+1) for idx in range(nfiles_r)]
+    files_rl = ['PDB/protein-ligand-%i.pdb'%(idx+1) for idx in range(nfiles_r)]
+
+    for idx in range(nfiles_r):
+        prepare_receptor('PDB/protein-%i.pdb'%(idx+1), files_r_abs[idx])
+        shutil.copyfile(files_l_abs[idx], files_l_new[idx])
+        prepare_ligand('PDB/protein-%i.pdb'%(idx+1), files_l_new[idx], files_rl[idx])
+    
+    clustering.prepare_leap_config_file('leap.in', files_r_abs, ['ligand.mol2']+files_l_new, ['protein-ligand.pdb']+files_rl)
+    subprocess.check_output('tleap -f leap.in', shell=True)
+
+    lines_trajin = ""
+    for idx in range(nfiles_r):
+        lines_trajin += "trajin %s\n"%files_rl[idx]
+    lines_trajin = lines_trajin[:-1]
+
+    # write cpptraj config file to cluster frames
+    with open('cpptraj.in', 'w') as file:
+        contents ="""parm protein-ligand.prmtop
+trajin protein-ligand.pdb
+%(lines_trajin)s
+rms first @CA,C,N&!:%(ligname)s
+rms nofit :%(ligname)s&!@H= out rmsd.dat"""% locals()
+        file.write(contents)
+
+    subprocess.check_output('cpptraj -i cpptraj.in > cpptraj.log', shell=True)
+    os.chdir(pwd)
+
+    values = np.loadtxt(rmsddir+'/rmsd.dat') 
+    values = values[1:,1]
+    if cleanup:
+        shutil.rmtree(rmsddir)
+
+    return values
+
 def get_solvent_mask(pdbfile, residues='WAT'):
 
     solvent_residues = map(str.strip, residues.split(','))
@@ -92,7 +156,6 @@ def get_solvent_mask(pdbfile, residues='WAT'):
 def get_ions_number(logfile, concentration=0.15, version='14'):
 
     # Nions = Cions * Nwater * 1/55.5 where 55.5 M is the concentration of pure water
-
     with open(logfile, 'r') as lf:
         for line in lf:
             line_s = line.strip().split()
@@ -175,7 +238,7 @@ def get_ligand_name(filename):
     name = list(set(names))
 
     if len(name) != 1:
-        raise IOError('More than one ligand found in file %s'%file_l)
+        raise IOError('More than one ligand found in file %s'%filename)
     else:
         name = name[0]
     return name

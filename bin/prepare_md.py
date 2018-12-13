@@ -50,12 +50,6 @@ parser.add_argument('-addions',
     default=0.0,
     help="Add specific concentration of ions (Na+, Cl-) and neutralize the system")
 
-parser.add_argument('-smd',
-    dest='smd',
-    action='store_true',
-    default=False,
-    help="Prepare files to run steered MD (namd only)")
-
 parser.add_argument('-box',
     dest='box',
     type=str,
@@ -181,6 +175,12 @@ parser.add_argument('-p',
     default="serial",
     help="Partition to run MD on")
 
+parser.add_argument('-pbradii',
+    dest='pbradii',
+    action='store_true',
+    default=False,
+    help="Set PBRadii option consistent with igb value.")
+
 parser.add_argument('-ref',
     dest='reference',
     type=str,
@@ -203,6 +203,12 @@ parser.add_argument('-s',
     required=False,
     default='run_md.sh',
     help="bash script filename")
+
+parser.add_argument('-smd',
+    dest='smd',
+    action='store_true',
+    default=False,
+    help="Prepare files to run steered MD (namd only)")
 
 parser.add_argument('-solvent',
     dest='solvent',
@@ -277,7 +283,6 @@ else:
 
 # ------- STEP 1: preparation -------
 if 'prep' in args.step:
-
     shutil.rmtree(workdir_r, ignore_errors=True)
     os.mkdir(workdir_r)
 
@@ -291,7 +296,6 @@ if 'prep' in args.step:
     # ligand preparation
     if args.file_l:
         files_l_new = []
-
         # preparing ligand(s)...
         for file_l in files_l:
             name = ambertools.get_ligand_name(file_l)
@@ -311,22 +315,23 @@ if 'prep' in args.step:
     else:
         solvate = False
 
+    if args.pbradii:
+        PBRadii = known_pbradii[args.igb]
+    else:
+        PBRadii = None
+
     if not args.nwaters_tgt or args.solvent in ['implicit', 'vacuo']:
-        if args.solvent == 'implicit':
-            PBRadii = known_pbradii[args.igb]
-        else:
-            PBRadii = None
         ambertools.prepare_leap_config_file('leap.in', 'protein.pdb', mol2files_l, 'complex.pdb', solvate=solvate, box=args.box, distance=args.boxsize, model=args.water, version=amber_version, PBRadii=PBRadii)
         utils.run_shell_command('tleap -f leap.in')
 
     else: # args.nwaters_tgt and args.solvent == 'explicit'
         removed_waters, dbest, cbest = ambertools.get_removed_waters('protein.pdb', mol2files_l, 'complex.pdb', args.nwaters_tgt, args.boxsize, step=0.01, ntries=5)
-        ambertools.prepare_leap_config_file('leap.in', 'protein.pdb', mol2files_l, 'complex.pdb', solvate=args.solvent, box=args.box, distance=dbest, closeness=cbest, remove=removed_waters, model=args.water, version=amber_version)
+        ambertools.prepare_leap_config_file('leap.in', 'protein.pdb', mol2files_l, 'complex.pdb', solvate=args.solvent, box=args.box, distance=dbest, closeness=cbest, remove=removed_waters, model=args.water, version=amber_version, PBRadii=PBRadii)
         utils.run_shell_command('tleap -f leap.in > leap.log')
 
     if args.addions != 0.0 and args.solvent == 'explicit':
         nna, ncl = ambertools.get_ions_number('leap.log', concentration=args.addions)
-        ambertools.prepare_leap_config_file('leap.in', 'protein.pdb', mol2files_l, 'complex.pdb', solvate=solvate, box=args.box, distance=args.boxsize, nna=nna, ncl=ncl, model=args.water, version=amber_version)
+        ambertools.prepare_leap_config_file('leap.in', 'protein.pdb', mol2files_l, 'complex.pdb', solvate=solvate, box=args.box, distance=args.boxsize, nna=nna, ncl=ncl, model=args.water, version=amber_version, PBRadii=PBRadii)
         utils.run_shell_command('tleap -f leap.in')
 
     if args.namd:
