@@ -187,11 +187,6 @@ parser.add_argument('-ref',
     default=None,
     help="Specify reference structure (for targeted MD...)")
 
-parser.add_argument('-tgtmd',
-    dest='argstgtmd',
-    default="",
-    help="Prepare files for targeted MD")
-
 parser.add_argument('-rst',
     dest='restraints',
     type=str,
@@ -546,90 +541,16 @@ ntpr=500,%(restraints_lines)s
 %(exe)s -O -i npt.mdin -o npt.mdout -c ../nvt/nvt.rst -r npt.rst -x npt.mdcrd -inf npt.mdinfo -p ../common/start.prmtop%(ref_flag)s
 cd ..\n"""%locals()
 
-# ------ targeted MD -------
-if args.argstgtmd:
-    tgtmd_parameters = {'wt': 'tgtmdfrc', 'mask': 'tgtrmsmask', 'maskfit': 'tgtfitmask', 'val': 'tgtrmsd', 'stop': 'tgtrmsdstop'}
-
-    # use shlex to split
-    splitter = shlex.shlex(args.argstgtmd, posix=True)
-    splitter.whitespace += ','
-    splitter.whitespace_split = True
-
-    argstgtmd = list(splitter)
-    nargstgtmd = len(argstgtmd)/2
-    tgtmd_lines = '\nitgtmd=1, '
-
-    tgtmd_options = {}
-    for idx in range(nargstgtmd):
-        key = argstgtmd[2*idx]
-        value = argstgtmd[2*idx+1]
-        if key in tgtmd_parameters:
-            option = tgtmd_parameters[key]
-            if option in ['tgtrmsmask', 'tgtfitmask']:
-                value = '\'' + value + '\''
-            tgtmd_lines += option + '=' + value + ', '
-        else:
-            option = key
-        tgtmd_options[option] = value
-
-    if 'tgtmdfrc' not in tgtmd_options:
-        print "Tgtmd constant not provided, try to estimate the one from free diffusion..."
-
-        # estimate the tgtmd constant from dynamics proprerties of the freely diffusing system
-        os.chdir(workdir_r+'/common')
-
-        with open('mass.in', 'w') as inf:
-            mask = tgtmd_options['tgtrmsmask']
-            contents = """parm start.prmtop
-trajin start.inpcrd
-mass %s"""%mask
-            inf.write(contents)
-        utils.run_shell_command('cpptraj -i mass.in > mass.log')
-
-        with open('mass.log') as logf:
-            for line in logf:
-                line_s = line.strip()
-                if line_s.startswith('Sum of masses in mask'):
-                    line_ss = line_s.split()
-                    natoms = line_ss[-3].split('(')[-1]
-                    natoms = int(natoms[:-1])
-                    mass = float(line_ss[-1])
-
-        nsteps = 100
-        time = nsteps*0.002*ps2s # nsteps MD steps in seconds
-        mass *= da2kg # convert mass to kg
-
-        k = (math.pi/2)**2 * mass/time**2 # k in J/m**2
-        k *= na * j2kcal / m2a**2 # convert k to Kcal/mol/A**2
-        wt = "%.2f"%(k/natoms)
-
-        print "Constant found: %s..."%wt
-        tgtmd_lines += 'tgtmdfrc=%s, '%wt
-        tgtmd_options['tgtmdfrc'] = wt
-        os.chdir(pwd)
-
-    if args.reference:
-        ref_flag_tgtmd = ' -ref %s'%(os.path.abspath(args.reference))
-    else:
-        raise IOError('No reference file provided with targeted MD!')
-
-else:
-    tgtmd_lines = ""
 
 # ------- STEP 5: production -------
 if 'md' in args.step:
-    if args.argstgtmd:
-        mddir = 'md_%s'%tgtmd_options['tgtmdfrc']
-    else:
-        mddir = 'md'
+    mddir = 'md'
     workdir = workdir_r + '/' + mddir
 
     shutil.rmtree(workdir, ignore_errors=True)
     os.mkdir(workdir)
 
-    if args.argstgtmd:
-        ref_flag = ref_flag_tgtmd
-    elif args.restraints and solvent == 'explicit':
+    if args.restraints and solvent == 'explicit':
         ref_flag = " -ref ../npt/npt.rst"
     else:
         ref_flag = ""
@@ -659,89 +580,13 @@ cut=%(cut)s,
 irest=1, ntx=5,
 iwrap=%(iwrap)s,
 ntc=2, ntf=2,
-ntpr=%(ntpr)s, ntwr=%(ntpr)s, ntwx=%(ntwx)s,%(ntwprt_lines)s%(tgtmd_lines)s%(restraints_lines)s
+ntpr=%(ntpr)s, ntwr=%(ntpr)s, ntwx=%(ntwx)s,%(ntwprt_lines)s%(restraints_lines)s
 /\n"""%locals())
 
         script += """\ncd %(mddir)s
 # production run
 %(exe)s -O -i md.mdin -o md.mdout -c ../npt/npt.rst -r md.rst -x md.mdcrd -inf md.mdinfo -p ../common/start.prmtop%(ref_flag)s
 cd ..\n"""%locals()
-
-        if args.argstgtmd and 'continue' in tgtmd_options:
-            if tgtmd_options['continue'] == 'minrmsd':
-                script += """\n# ------ DOUBLE TGTMD CONSTANT UNTIL TARGETED RMSD IS REACHED ------
-
-# define function to check the rmsd
-function has_reached_rmsd {
-script="with open('$1', 'r') as fout:\\n
-\\thas_reached = 0\\n
-\\tfor line in fout:\\n
-\\t\\tif line.startswith('RMSD below rmsdstop:'):\\n
-\\t\\t\\thas_reached = 1\\n
-\\t\\t\\tbreak\\n
-\\tprint has_reached"
-echo -e $script | python
-}
-
-mddir=%(mddir)s
-stop_script=`has_reached_rmsd ${mddir}/md.mdout`
-
-while [ $stop_script -ne 1 ]; do
-  # check constant
-  wt=`echo $mddir | sed -n 's/md_//p'`
-  wt_new=$(expr $wt*2 | bc) # double constant
-  mddir_new=md_${wt_new}
-
-  # create folder and md.mdin
-  mkdir ${mddir_new}
-  sed -e "s/tgtmdfrc=$wt/tgtmdfrc=${wt_new}/g" $mddir/md.mdin > ${mddir_new}/md.mdin
-  rm -rf $mddir # get rid of the old folder
-  mddir=${mddir_new}
-
-  cd $mddir
-  %(exe)s -O -i md.mdin -o md.mdout -c ../npt/npt.rst -r md.rst -x md.mdcrd -inf md.mdinfo -p ../common/start.prmtop%(ref_flag)s
-  cd ..
-
-  stop_script=`has_reached_rmsd ${mddir}/md.mdout`
-done\n"""%locals()
-            elif tgtmd_options['continue'] == 'mindensity':
-                script += """\n# ------ DOUBLE TGTMD CONSTANT UNTIL TARGETED RMSD IS REACHED ------
-
-# define function to check the rmsd
-function has_reached_rmsd {
-script="with open('$1', 'r') as fout:\\n
-\\thas_reached = 0\\n
-\\tfor line in fout:\\n
-\\t\\tif line.startswith('RMSD below rmsdstop:'):\\n
-\\t\\t\\thas_reached = 1\\n
-\\t\\t\\tbreak\\n
-\\tprint has_reached"
-echo -e $script | python
-}
-
-mddir=%(mddir)s
-stop_script=`has_reached_rmsd ${mddir}/md.mdout`
-
-while [ $stop_script -ne 1 ]; do
-  # check constant
-  wt=`echo $mddir | sed -n 's/md_//p'`
-  wt_new=$(expr $wt*2 | bc) # double constant
-  mddir_new=md_${wt_new}
-
-  # create folder and md.mdin
-  mkdir ${mddir_new}
-  sed -e "s/tgtmdfrc=$wt/tgtmdfrc=${wt_new}/g" $mddir/md.mdin > ${mddir_new}/md.mdin
-  rm -rf $mddir # get rid of the old folder
-  mddir=${mddir_new}
-
-  cd $mddir
-  %(exe)s -O -i md.mdin -o md.mdout -c ../npt/npt.rst -r md.rst -x md.mdcrd -inf md.mdinfo -p ../common/start.prmtop%(ref_flag)s
-  cd ..
-
-  stop_script=`has_reached_rmsd ${mddir}/md.mdout`
-done\n"""%locals()
-            else:
-                raise ValueError('No option %s found for tgtmd keyword continue'%tgtmd_options['continue'])
 
     else: # implicit solvent
         if args.solvent == 'vacuo':

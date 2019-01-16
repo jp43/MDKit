@@ -32,7 +32,7 @@ def cluster_trajectory(crdfile, prmtop, mode='clustering', cutoff=None, ncluster
         print "Clustering trajectory..."
     elif mode == 'fit':
         print "RMSD fit trajectory..."
-    elif mode == '2drmsd':
+    elif mode == 'rmsd2d':
         print "Computing RMSD matrix from trajectory..."
 
     # run clustering (or fit, 2rmsd...) using cpptraj
@@ -42,20 +42,23 @@ def cluster_trajectory(crdfile, prmtop, mode='clustering', cutoff=None, ncluster
     os.chdir(curdir)
     print "done."
 
-def get_frames_idxs(crdfile, prmtop, trajin=''):
-    """function used to find the indices of frames that will be loaded (to be used when mode=2drmsd)"""
+def prepare_rmsd2d(crdfile, prmtop, trajin=''):
+
+    mask_solvent = ':WAT,Na+,Cl-'
 
     # read number of frames in trajectory using cpptraj
     with open('cpptraj.in', 'w') as inf:
         contents = """parm %(prmtop)s
-trajin %(crdfile)s %(trajin)s\n"""% locals()
+trajin %(crdfile)s %(trajin)s
+strip %(mask_solvent)s outprefix noW
+trajout traj.mdcrd\n"""% locals()
         inf.write(contents)
 
     # use debug option to guarantee that the number of frames will show up
-    subprocess.check_output('cpptraj -i cpptraj.in -debug 1 > cpptraj.log', shell=True)
+    subprocess.check_output('cpptraj -i cpptraj.in > cpptraj.log', shell=True)
     with open('cpptraj.log') as logf:
         for line in logf:
-            if 'contains' and 'frames' in line:
+            if 'frames and processed' in line:
                 # get total number of frames in trajectory
                 nframes = int(line.split()[-2])
 
@@ -83,16 +86,6 @@ trajin %(crdfile)s %(trajin)s\n"""% locals()
 
 
 def cluster_poses(files_r, files_l, mode='clustering', cutoff=None, nclusters=None, cleanup=True, ligname='LIG'):
-    """ 
-    cluster_poses(files_r, files_l)
-
-    Cluster poses (or fit, compute 2D RMSD matrix...) using cpptraj
-
-    Parameters
-    ----------
-    files_r: filenames for receptor (.pdb)
-    files_l: list of filenames (.mol2) for ligand, when ligand-protein complex
-    mode: what will actually be peformed (clustering, pca, fit, 2drmsd)"""
 
     # get current directory
     curdir = os.getcwd()
@@ -166,6 +159,7 @@ quit"""% locals()
         ff.write(contents)
 
 def prepare_cpptraj_config_file_trajectory(filename, crdfile, prmtop, cutoff=None, nclusters=None, mode='clustering', trajin='', ligname='LIG'):
+    mask_solvent = ':WAT,Na+,Cl-'
 
     mask = ':%s&!@H='%ligname
     maskfit = '@CA,C,N&!:%s'%ligname
@@ -183,30 +177,32 @@ def prepare_cpptraj_config_file_trajectory(filename, crdfile, prmtop, cutoff=Non
                 option = ""
             contents = """parm %(prmtop)s
 trajin %(crdfile)s %(trajin)s
-strip :WAT,Na+,Cl-
+strip %(mask_solvent)s
 rms first %(maskfit)s
 cluster %(mask)s nofit summary summary.dat info info.dat repout frame repfmt pdb%(option)s\n"""% locals()
             file.write(contents)
         elif mode == 'fit':
             contents = """parm %(prmtop)s
 trajin %(crdfile)s %(trajin)s
-strip :WAT,Na+,Cl-
+strip %(mask_solvent)s
 rms first %(maskfit)s
 strip !:%(ligname)s
 trajout struct.pdb multi\n"""% locals()
             file.write(contents)
-        elif mode == '2drmsd':
+        elif mode == 'rmsd2d':
             # Needs to know the frames indices to compute 2D RMSD matrix
-            frames_idxs = get_number_of_frames(crdfile, prmtop, trajin=trajin)
+            frames_idxs = prepare_rmsd2d(crdfile, prmtop, trajin=trajin)
+            new_prmtop = 'noW.' + os.path.basename(prmtop)
             lines_rms = ""
             for idx, frame_idx in enumerate(frames_idxs):
                 jdx = idx + 1
-                lines_rms += """reference %(crdfile)s %(frame_idx)s [ref%(jdx)s]
+                lines_rms += """reference traj.mdcrd %(frame_idx)s [ref%(jdx)s]
 rms ref [ref%(jdx)s] %(maskfit)s 
 rms ref [ref%(jdx)s] %(mask)s nofit out rmsd_%(jdx)s.txt\n""" %locals()
-            contents = """parm %(prmtop)s
-trajin %(crdfile)s %(trajin)s
+            contents = """parm %(new_prmtop)s
+trajin traj.mdcrd %(trajin)s
 %(lines_rms)s"""% locals()
+
             file.write(contents)
 
 def prepare_cpptraj_config_file_poses(filename, files_rl, prmtop, cutoff=None, nclusters=None, mode='clustering', ligname='LIG'):
@@ -255,7 +251,7 @@ rms first %(maskfit)s
 trajout ref.rst restart onlyframes 1
 trajout struct.pdb multi\n"""% locals()
             file.write(contents)
-        elif mode == '2drmsd':
+        elif mode == 'rmsd2d':
             lines_rms = ""
             for idx, file_rl in enumerate(files_rl):
                 jdx = idx + 1
@@ -329,7 +325,7 @@ def create_arg_parser():
         type=str,
         dest='mode',
         default='clustering',
-        help = 'Cpptraj mode (clustering, pca, fit, 2drmsd)')
+        help = 'Cpptraj mode (clustering, pca, fit, rmsd2d)')
 
     parser.add_argument('-n',
         type=str,
@@ -381,6 +377,7 @@ def check_args(args):
             raise IOError("No %s provided (%s option)"%(arg, value[1]))
 
 def run():
+
     parser = create_arg_parser()
     args = parser.parse_args()
     check_args(args)
