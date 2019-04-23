@@ -6,9 +6,9 @@ import subprocess
 import argparse
 
 import ambertools
-from mdtools.utility import utils
-from mdtools.utility import mol2
-from mdtools.utility import reader
+from mdkit.utility import utils
+from mdkit.utility import mol2
+from mdkit.utility import reader
 
 leap_default_settings = {'solvate': False, 'PBRadii': None, 'forcefield': 'leaprc.ff14SB'}
 

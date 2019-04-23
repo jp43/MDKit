@@ -2,12 +2,12 @@ import os
 import sys
 import shutil
 import subprocess
-
-import clustering
 import numpy as np
 
-from mdtools.utility import reader
-from mdtools.utility import utils
+from mdkit.utility import reader
+from mdkit.utility import utils
+
+import clustering
 
 def get_nwaters(logfile):
 
@@ -312,22 +312,26 @@ def correct_hydrogen_names(file_r, keep_hydrogens=False):
     #print "Number of atom lines removed: %s" %nremoved
 
 def run_antechamber(infile, outfile, at='gaff', c='gas', logfile='antechamber.log', version='14', skip_unrecognized_atoms=False):
-    """ use H++ idea of running antechamber multiple times with bcc's 
-charge method to estimate the appropriate net charge!!"""
-
+    """ use H++ idea of running antechamber multiple times with bcc's charge method to estimate the appropriate net charge!!"""
     suffix, ext = os.path.splitext(infile)
     ext = ext[1:]
 
+    supported_charge_methods = ['gas', 'bcc', 'mul']
     max_net_charge = 30
     net_charge = [0]
 
     unrecognized_atom = False
     if c and c.lower() != 'none':
+        c_lower = c.lower()
+        if c_lower not in supported_charge_methods:
+            raise ValueError("Charge method %s not recognized! Charge method should be one of %s"%(c_lower,', '.join(supported_charge_methods)))
+
         for nc in range(max_net_charge):
             net_charge.extend([nc+1,-(nc+1)])
 
         for nc in net_charge:
-            iserror = False
+            is_error = False
+            is_wrong_charge = False
             if version in ['14', '15']:
                 command = 'antechamber -i %(infile)s -fi %(ext)s -o %(outfile)s -fo mol2 -at %(at)s -c %(c)s -nc %(nc)s -du y -pf y &>> %(logfile)s'%locals()
             elif version in ['16', '17']:
@@ -344,18 +348,32 @@ charge method to estimate the appropriate net charge!!"""
                     break 
             with open(logfile, 'r') as lf:
                 for line in lf:
-                    line_st = line.strip()
-                    line_sp = line_st.split()
-                    if 'Warning' in line or 'Error' in line:
-                        iserror = True
-                    if line_st.startswith("does not equal"):
-                        nc_suggested = int(float(line_sp[8][1:-1]))
-                        if nc_suggested == nc:
-                            return
-                if not iserror:
+                    line_s = line.split()
+                    if c_lower == 'gas':
+                        if version in ['14', '15'] and 'does not equal to the total formal charge' in line:
+                            nc_suggested = int(float(line_s[8][1:5]))
+                            is_wrong_charge = True
+                        elif version in ['16', '17'] and 'Warning: The net charge of the molecule' in line and 'does not equal the' in line:
+                            nc_suggested = int(float(line_s[16][1:5]))
+                            is_wrong_charge = True
+                        if is_wrong_charge:
+                            if nc_suggested == nc:
+                                return
+                            break
+                    elif c_lower in ['bcc', 'mul']:
+                        if version in ['14', '15'] and 'Error: cannot run' in line and 'sqm' in line:
+                            is_wrong_charge = True
+                        elif version in ['16', '17'] and 'Cannot properly run' in line and 'sqm' in line:
+                            is_wrong_charge = True
+                    if 'Error' in line:
+                        is_error = True
+                if not is_error and not is_wrong_charge:
                     break
-        if iserror:
+
+        if is_wrong_charge:
             raise ValueError("No appropriate net charge was found to run antechamber's %s charge method"%c)
+        elif is_error:
+            raise ValueError("Error when running antechamber!")
 
     if c is None or c.lower() == 'none' or (unrecognized_atom and skip_unrecognized_atoms): # do not regenerate charges
        command = 'antechamber -i %(infile)s -fi %(ext)s -o %(outfile)s -fo mol2 -at %(at)s -du y -pf y > %(logfile)s'%locals()

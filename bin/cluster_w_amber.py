@@ -1,5 +1,5 @@
 #!/usr/bin/env python
 
-from mdtools.amber import clustering
+from mdkit.amber import clustering
 
 clustering.run()

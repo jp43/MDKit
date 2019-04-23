@@ -3,7 +3,8 @@ import os
 import sys
 import argparse
 import subprocess
-from mdtools.utility import mol2
+
+from mdkit.utility import mol2
 
 parser = argparse.ArgumentParser(description="Convert pdb to .mol2 using .mol2 reference file")
 
@@ -68,7 +69,8 @@ mol2file_query_uniq = base + '_uniq_noH.mol2'
 mol2file_ref_uniq =  base_ref + '_uniq.mol2'
 
 # make rough mol2 file from pdb with babel
-subprocess.check_output('$SCHRODINGER/utilities/babel %(pdbfile)s %(base)s.mol2 &>/dev/null'%locals(), shell=True, executable='/bin/bash')
+subprocess.check_output('babel %(pdbfile)s %(base)s.mol2 &>/dev/null'%locals(), shell=True, executable='/bin/bash')
+
 mol2.update_mol2file(base+'.mol2', mol2file_query_uniq, unique=True, remove=['H', 'h']) # remove hydrogens and give uique names to heavy atoms
 os.remove(base+'.mol2')
 

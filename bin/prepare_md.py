@@ -5,12 +5,11 @@ import math
 import shutil
 import argparse
 import subprocess
-import shlex
 import numpy as np
 
-from mdtools.utility import utils
-from mdtools.namd import namdtools
-from mdtools.amber import ambertools
+from mdkit.utility import utils
+from mdkit.namd import namdtools
+from mdkit.amber import ambertools
 
 # ----- SET CONSTANTS ------
 # constants
@@ -29,7 +28,7 @@ known_steps = ['prep', 'min', 'nvt', 'npt', 'md']
 # born radii for each implicit solvation scheme
 known_pbradii = {1: 'mbondi', 2: 'mbondi2', 5: 'mbondi2', 7: 'bondi', 8: 'mbondi3'}
 
-parser = argparse.ArgumentParser(description="Prepare MD simulations with amber")
+parser = argparse.ArgumentParser(description="Prepare MD simulations with Amber")
 
 parser.add_argument('-r',
     dest='file_r',

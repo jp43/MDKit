@@ -3,8 +3,9 @@ import sys
 import argparse
 import shutil
 from glob import glob
-from mdtools.utility import mol2
-from mdtools.amber import ambertools
+
+from mdkit.utility import mol2
+from mdkit.amber import ambertools
 
 parser = argparse.ArgumentParser(description="Prepare rescoring of MD frames")
 
