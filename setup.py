@@ -57,11 +57,11 @@ def check_import(pkgname, pkgver):
     globals()[pkgname] = mod
 
 setuptools.setup(name='mdkit',
-    version="0.0.6",
+    version="0.0.7",
     packages=['mdkit', 'mdkit.amber', 'mdkit.namd', 'mdkit.utility'],
     package_data = {'mdkit.amber': ['PROTON_INFO', 'atomic_ions.cmd']},
     scripts = ['bin/prepare_md.py', 'bin/run_mmpbsa.py', 'bin/cluster_w_amber.py', 'bin/minimize_w_amber.py', 'bin/pdb2mol2'],
-    install_requires = ['networkx==2.2'],
+    install_requires = ['networkx==2.2', 'numpy==1.8.0'],
     license='LICENSE.txt',
     description='Tools to prepare and analyze MD simulations conducted with popular MD packages',
     long_description=open('README.md').read(),
