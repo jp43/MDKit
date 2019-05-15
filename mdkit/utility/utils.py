@@ -1,6 +1,7 @@
 import os
 from glob import glob
 import subprocess
+import reader
 import numpy as np
 
 # required programs
@@ -39,4 +40,13 @@ def center_of_geometry(coords):
     cog = cog / num_atom
     return cog
 
-
+def get_box_dimensions(pdbfile, mask=[]):
+    # used when prepare pdbfile from CHARMM Membrane Builder
+    pdbf = reader.open(pdbfile)
+    coords = []
+    for line in pdbf.next()['ATOM']:
+        if (mask and line[2].strip() in mask) or not mask:
+            coords.append(map(float,line[4:]))
+    coords = np.array(coords)
+    dist = np.amax(coords, axis=0) - np.amin(coords, axis=0)
+    return dist

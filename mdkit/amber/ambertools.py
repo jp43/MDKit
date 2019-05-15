@@ -1,5 +1,7 @@
 import os
 import sys
+import csv
+import re
 import shutil
 import subprocess
 import numpy as np
@@ -259,7 +261,7 @@ def correct_hydrogen_names(file_r, keep_hydrogens=False):
     with open(file_r, 'r') as rf:
         for line in rf:
             if line.startswith('ATOM'): # atom line
-                resnum = line[22:26].strip()
+                resnum = line[22:27].strip()
 
                 if is_first_residue:
                     first_residues.append(resnum)
@@ -277,7 +279,7 @@ def correct_hydrogen_names(file_r, keep_hydrogens=False):
                     resname = line[17:20].strip()
                     atom_name = line[12:16].strip()
                     chainID = line[21:22].strip()
-                    resnum = line[22:26].strip()
+                    resnum = line[22:27].strip()
 
                     if resname in atoms_info:
                        # atom (if atom name starts with a digit, correct it)
@@ -379,14 +381,15 @@ def run_antechamber(infile, outfile, at='gaff', c='gas', logfile='antechamber.lo
        command = 'antechamber -i %(infile)s -fi %(ext)s -o %(outfile)s -fo mol2 -at %(at)s -du y -pf y > %(logfile)s'%locals()
        utils.run_shell_command(command)
 
-def prepare_leap_config_file(script_name, file_r, files_l, file_rl, solvate=False, PBRadii=None, forcefield='ff14SB', nna=0, ncl=0, box='parallelepiped', distance=10.0, closeness=1.0, remove=None, model='TIP3P', version='14'):
+def prepare_leap_config_file(script_name, file_r, files_l, file_rl, solvate=False, PBRadii=None, forcefield='ff14SB', nna=0, ncl=0, box='parallelepiped', distance=10.0, closeness=1.0, model='TIP3P', version='14', membrane=False):
  
     solvation_line = ""
     pbradii_lines = ""
     add_ions_lines = ""
-    remove_water_lines = ""
     ligand_lines = ""
     ions_libraries_lines = ""
+    loadpdb_line = ""
+    set_box_line = "" # used when membrane is True
 
     tip3p_models = ['TIP3P', 'TIP3PF', 'POL3', 'QSPCFW']
     tip4p_models = ['TIP4P', 'TIP4PEW']
@@ -404,10 +407,10 @@ def prepare_leap_config_file(script_name, file_r, files_l, file_rl, solvate=Fals
 
 
     if version in ['14', '15']:
-        forcefield_line = 'source leaprc.' + forcefield 
+        forcefield_lines = 'source leaprc.' + forcefield 
     elif version in ['16', '17']:
-        forcefield_line = 'source leaprc.protein.' + forcefield
-        forcefield_line += '\n' + 'source leaprc.water.' + solvent_model
+        forcefield_lines = 'source leaprc.protein.' + forcefield
+        forcefield_lines += '\n' + 'source leaprc.water.' + solvent_model
     else:
         raise ValueError("Amber version %s not supported!"%version)
 
@@ -425,18 +428,19 @@ def prepare_leap_config_file(script_name, file_r, files_l, file_rl, solvate=Fals
         if ncl > 0:
             add_ions_lines += "\naddions complex Cl- %i"%ncl
         suffix_ions_libraries = solvent_model
-    else:
-        suffix_ions_libraries = 'tip3p'
+        if nna > 0 or ncl > 0: 
+            ions_libraries_lines = """\nloadamberparams frcmod.ionsjc_%(suffix_ions_libraries)s
+loadamberparams frcmod.ionslm_1264_%(suffix_ions_libraries)s"""%locals()
+    elif membrane:
+        forcefield_lines += '\nsource leaprc.lipid14'
+        box_dx, box_dy, box_dz = utils.get_box_dimensions(file_r, mask=['WAT'])
+        set_box_line = "\nset complex box { %.3f %.3f %.3f }"%(box_dx, box_dy, box_dz)
 
     if PBRadii:
         pbradii_lines = "\nset default PBRadii %s"%PBRadii
 
-    if remove:
-        for idx in remove:
-            remove_water_lines += "\nremove complex complex.%i"%idx
-
-    # loadoff atomic_ions.lib
     if files_l:
+        forcefield_lines += '\nsource leaprc.gaff'
         if isinstance(files_l, basestring):
             files_l = [files_l]
         for idx, file_l in enumerate(files_l):
@@ -444,29 +448,19 @@ def prepare_leap_config_file(script_name, file_r, files_l, file_rl, solvate=Fals
             file_l_prefix = os.path.basename(file_l_prefix)
             name = get_ligand_name(file_l)
             ligand_lines += "\n%(name)s = loadmol2 %(file_l)s\nloadamberparams %(file_l_prefix)s.frcmod"%locals()
-        with open(script_name, 'w') as leapf:
-            script ="""%(forcefield_line)s
-source leaprc.gaff
-loadamberparams frcmod.ionsjc_%(suffix_ions_libraries)s
-loadamberparams frcmod.ionslm_1264_%(suffix_ions_libraries)s%(ligand_lines)s%(pbradii_lines)s
-complex = loadPdb %(file_rl)s%(solvation_line)s%(add_ions_lines)s%(remove_water_lines)s
-saveAmberParm complex start.prmtop start.inpcrd
-savePdb complex start.pdb
-quit\n"""%locals()
-            leapf.write(script)
+        loadpdb_line = "complex = loadPdb %s"%file_rl
     else:
-        with open(script_name, 'w') as leapf:
-            script ="""%(forcefield_line)s
-loadoff atomic_ions.lib
-loadamberparams frcmod.ionsjc_%(suffix_ions_libraries)s
-loadamberparams frcmod.ionslm_1264_%(suffix_ions_libraries)s%(pbradii_lines)s
-complex = loadPdb %(file_r)s%(solvation_line)s%(add_ions_lines)s
+        loadpdb_line = "complex = loadPdb %s"%file_r
+
+    with open(script_name, 'w') as leapf:
+        script ="""%(forcefield_lines)s%(ions_libraries_lines)s%(ligand_lines)s%(pbradii_lines)s
+%(loadpdb_line)s%(solvation_line)s%(add_ions_lines)s%(set_box_line)s
 saveAmberParm complex start.prmtop start.inpcrd
 savePdb complex start.pdb
 quit\n"""%locals()
-            leapf.write(script)
+        leapf.write(script)
 
-def prepare_receptor(file_r_out, file_r, keep_hydrogens=False):
+def prepare_receptor(file_r_out, file_r, keep_hydrogens=False, membrane=False):
 
     # only keep atom lines
     with open(file_r, 'r') as tmpf:
@@ -478,6 +472,9 @@ def prepare_receptor(file_r_out, file_r, keep_hydrogens=False):
             # if last line not TER, write it
             if not line.startswith('TER'):
                 recf.write('TER\n')
+
+    if membrane:
+        charmmlipid2amber(file_r_out)
 
     # remove atoms and hydrogen with no name recognized by AMBER
     correct_hydrogen_names(file_r_out, keep_hydrogens=keep_hydrogens)
@@ -513,3 +510,188 @@ def prepare_ligand(file_r, files_l, file_rl, charge_method='gas', version='14', 
             ffrl.write('TER\n')
 
     return mol2files_l
+
+def charmmlipid2amber(filename):
+
+    amberhome = os.getenv('AMBERHOME')
+    if amberhome == None:
+        print "Error: AMBERHOME not set. Set the AMBERHOME environment variable."
+        sys.exit(2)
+    else:
+        # Hard coded into here. This has to be changed if the data file is moved.
+        convert_filename = "%s/dat/charmmlipid2amber/charmmlipid2amber.csv" % (amberhome)
+
+    input_file  = open(filename, 'r') # File to be processed
+    input_file_list = [] # File to be processed as a list
+    for line in input_file:
+        input_file_list.append(line)
+    input_file.close()
+
+    # Process residues
+    residue_list = [] # List of residue numbers
+    residue_start = [] # List of lines where residues start. Line numbers start at 1.
+    residue_end = [] # List of lines where residues end, including TER card if present. Line numbers start at 1.
+    it0 = 1
+    previous_residue = "" # Residue number of the previous line (including TER card). Set to "" if it is not an ATOM record or TER card.
+    current_residue = "" # Residue number of the current line (including TER card). Set to "" if it is not an ATOM record or TER card.
+    # Split file into residues by checking columns 23-27 (<99999 residues):
+    # First line:
+    if (input_file_list[0][0:6] == "ATOM  " or
+        input_file_list[0][0:6] == "HETATM"):
+        residue_list.append(input_file_list[0][22:27])
+        residue_start.append(it0)
+        previous_residue = input_file_list[0][22:27] 
+    elif line[0:3] == "TER":
+        previous_residue = ""
+    else:
+        previous_residue = ""
+    it0+=1
+    # Rest of lines:
+    for line in input_file_list[1:]:
+        if line[0:6] == "ATOM  " or line[0:6] == "HETATM":
+            current_residue = line[22:27]
+        elif line[0:3] == "TER":
+            current_residue = previous_residue
+        else:
+            current_residue = ""
+        if previous_residue != current_residue:
+            # Previous line was not an ATOM or TER:
+            if previous_residue == "":
+                residue_list.append(current_residue)
+                residue_start.append(it0)
+                previous_residue = current_residue
+            # Current line is not an ATOM or TER:
+            elif current_residue == "":
+                residue_end.append(it0-1)
+                previous_residue = current_residue
+            # Previous and current line are ATOM or TER:
+            else:
+                residue_list.append(current_residue)
+                residue_start.append(it0)
+                residue_end.append(it0-1)
+                previous_residue = current_residue
+        it0+=1
+    # If the last residue is not closed, define the end:
+    if current_residue != "":
+        residue_end.append(it0-1)
+
+    # Process substition dictionaries
+    try:
+        csv_file = open(convert_filename, 'r') # csv file with all substitutions
+    except IOError, err:
+        print "Error: ", str(err)
+        sys.exit(1)
+    # Skip header line of csv file. Line 2 contains dictionary keys:
+    csv_file.readline()
+    csv_file_reader = csv.DictReader(csv_file) # Dictionary csv reader
+    replace_dict = {} # Dictionary of atom name and residue name search and replace
+    order_dict = {} # Dictionary of atom name and residue name order
+    ter_dict = {} # Dictionary of whether residue should have a TER card based on atom name and residue name. All atom name and residue name in a residue with a TER card will return True.
+    num_atom_dict = {} # Dictionary of number of atoms in current residue for the search string
+    for line in csv_file_reader:
+        replace_dict[line["search"]] = line["replace"]
+        order_dict[line["search"]] = int(line["order"])
+        ter_dict[line["search"]] = (line["TER"] == "True")
+        num_atom_dict[line["search"]] = int(line["num_atom"])
+    csv_file.close()
+
+    # Do substitions
+    # The search and replace is columns 13-21 in the PDB file:
+    # 13-16: atom name
+    # 17:      alternate location indicator
+    # 18-20: residue name
+    # 21:      sometimes used for the residue name
+    output_file_list = [] # File to be written in list form (after processing)
+    residue_substituted = False # For error checking. True if a substitution occurs.
+    for it1 in range(0, len(residue_list)):
+        # residue_start and residue_end indices start at 1. 
+        # input_file_list indices start at 0.
+        input_residue = input_file_list[residue_start[it1]-1:
+            residue_end[it1]]
+        output_residue = []
+        # Process residue only if first atom is in the replacement dictionary:
+        if input_residue[0][12:21] in replace_dict:
+            residue_substituted = True
+            # Check if length of input_residue is correct:
+            # Count TER cards in residue for residue length arithmetic
+            n_TER_cards = 0
+            for line in input_residue:
+                if line[0:3] == "TER":
+                    n_TER_cards += 1
+            if len(input_residue)-n_TER_cards != num_atom_dict[input_residue[0][12:21]]:
+                print "Error: Number of atoms in residue does not match number of atoms in residue in replacement data file"
+                sys.exit(1)
+            output_residue = len(input_residue)*[0]
+            for it2 in range(0, len(input_residue)):
+                line = input_residue[it2]
+                if line[0:3] != "TER":
+                     search = line[12:21]
+                     output_residue[order_dict[search]] = re.sub(search, 
+                        replace_dict[search], line)
+                else:
+                     output_residue[it2] = "TER   \n"
+            if ter_dict[input_residue[0][12:21]] == True:
+                if input_residue[-1][0:3] != "TER":
+                    output_residue.append("TER   \n")
+        else:
+            output_residue = input_residue
+        output_file_list.extend(output_residue)
+    # Check if any residues were substituted:
+    if residue_substituted == False:
+        print "Error: No residues substituted"
+        sys.exit(1)
+
+    resname_last = ''
+    resnum_last = 0
+    resum_new = 0
+    new_output_file_list = []
+    for line in output_file_list:
+        if line.startswith(('ATOM', 'HETATM')):
+            atomname = line[12:16].strip()
+            resname = line[17:20].strip()
+            resnum = int(line[22:27])
+            if resname != resname_last or resnum != resnum_last:
+                resum_new = (resum_new+1)%100000
+            # (1) Add TER lines if needed
+            if (resnum_last > resnum) or (resname == 'WAT' and atomname == 'O') or atomname in ['Na+', 'Cl-', 'K+']:
+                new_output_file_list.append('TER\n')
+            # (2) fix atom names
+            if resname == 'ILE' and atomname == 'CD':
+                atomname_new = ' CD1'
+            else:
+                atomname_new = line[12:16]
+            # (3) fix residue names
+            if resname == 'HSD':
+                resname_new = 'HIS'
+            else:
+                resname_new = line[17:20]
+            resname_last = resname
+            resnum_last = resnum
+            resum_new_str = str(resum_new)
+            if len(resum_new_str) <= 4:
+                resum_new_str = (4-len(str(resum_new)))*' ' + resum_new_str + ' '
+            elif len(resum_new_str) == 5:
+                resum_new_str = (5-len(str(resum_new)))*' ' + resum_new_str
+            else:
+                raise Exception("Something went wrong!")
+            line_new = line[:12] + atomname_new + line[16:17] + resname_new + line[20:22] + resum_new_str + line[27:]
+        else:
+            line_new = line
+        new_output_file_list.append(line_new)
+
+    last_line = ''
+    output_file_list = []
+    for line in new_output_file_list:
+        if not last_line.startswith('TER') or not line.startswith('TER'):
+            output_file_list.append(line)
+        last_line = line
+
+    # Write output
+    try:
+        output_file = open(filename, 'w') # File to be written
+    except IOError, err:
+        print "Error: ", str(err)
+        sys.exit(1)
+    for line in output_file_list:
+        output_file.write(line)
+    output_file.close()

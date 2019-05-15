@@ -75,7 +75,7 @@ parser.add_argument('-cut',
 parser.add_argument('-hem',
     dest='hem',
     action='store_true',
-    help="Skip generation of charges for unrecognized atoms with antechamber (similar to tutorial on HEM group: http://ambermd.org/tutorials/advanced/tutorial20/mcpbpy_heme.html)")
+    help="Skip generation of charges for unrecognized atoms with antechamber (similar to tutorial on HEME group: http://ambermd.org/tutorials/advanced/tutorial20/mcpbpy_heme.html)")
 
 parser.add_argument('-keeph',
     dest='keeph',
@@ -100,10 +100,15 @@ parser.add_argument('-lb',
     default=8.0,
     help="Lower bound for binding site")
 
+parser.add_argument('-membrane',
+    dest='membrane',
+    action='store_true',
+    help="Prepare simulation of membrane protein in lipids. Protein structure is assumed to be provided using CHARMM membrane builder (PDB output file from step 5).")
+
 parser.add_argument('-namd',
     dest='namd',
     action='store_true',
-    help="Prepare files for NAMD")
+    help="Prepare files for NAMD only.")
 
 parser.add_argument('-np',
     dest='ncpus',
@@ -151,12 +156,6 @@ parser.add_argument('-ntpr',
     default=50,
     help="Production: ntpr and ntwr for restart files (default: 50)")
 
-parser.add_argument('-nwaters',
-    dest='nwaters_tgt',
-    type=int,
-    default=None,
-    help="Number of waters")
-
 parser.add_argument('-ntwprt',
     dest='ntwprt',
     type=int,
@@ -180,12 +179,6 @@ parser.add_argument('-pbradii',
     default=False,
     help="Set PBRadii option consistent with igb value.")
 
-parser.add_argument('-ref',
-    dest='reference',
-    type=str,
-    default=None,
-    help="Specify reference structure (for targeted MD...)")
-
 parser.add_argument('-rst',
     dest='restraints',
     type=str,
@@ -197,12 +190,6 @@ parser.add_argument('-s',
     required=False,
     default='run_md.sh',
     help="bash script filename")
-
-parser.add_argument('-smd',
-    dest='smd',
-    action='store_true',
-    default=False,
-    help="Prepare files to run steered MD (namd only)")
 
 parser.add_argument('-solvent',
     dest='solvent',
@@ -285,7 +272,7 @@ if 'prep' in args.step:
     os.makedirs(workdir)
     os.chdir(workdir)
 
-    ambertools.prepare_receptor('protein.pdb', file_r_abspath, keep_hydrogens=args.keeph)
+    ambertools.prepare_receptor('protein.pdb', file_r_abspath, keep_hydrogens=args.keeph, membrane=args.membrane)
 
     # ligand preparation
     if args.file_l:
@@ -304,7 +291,7 @@ if 'prep' in args.step:
     else:
         mol2files_l = None
 
-    if args.solvent == 'explicit':
+    if args.solvent == 'explicit' and not args.membrane:
         solvate = True
     else:
         solvate = False
@@ -314,14 +301,8 @@ if 'prep' in args.step:
     else:
         PBRadii = None
 
-    if not args.nwaters_tgt or args.solvent in ['implicit', 'vacuo']:
-        ambertools.prepare_leap_config_file('leap.in', 'protein.pdb', mol2files_l, 'complex.pdb', solvate=solvate, box=args.box, distance=args.boxsize, model=args.water, version=amber_version, PBRadii=PBRadii)
-        utils.run_shell_command('tleap -f leap.in')
-
-    else: # args.nwaters_tgt and args.solvent == 'explicit'
-        removed_waters, dbest, cbest = ambertools.get_removed_waters('protein.pdb', mol2files_l, 'complex.pdb', args.nwaters_tgt, args.boxsize, step=0.01, ntries=5)
-        ambertools.prepare_leap_config_file('leap.in', 'protein.pdb', mol2files_l, 'complex.pdb', solvate=args.solvent, box=args.box, distance=dbest, closeness=cbest, remove=removed_waters, model=args.water, version=amber_version, PBRadii=PBRadii)
-        utils.run_shell_command('tleap -f leap.in > leap.log')
+    ambertools.prepare_leap_config_file('leap.in', 'protein.pdb', mol2files_l, 'complex.pdb', solvate=solvate, box=args.box, distance=args.boxsize, model=args.water, version=amber_version, PBRadii=PBRadii, membrane=args.membrane)
+    utils.run_shell_command('tleap -f leap.in')
 
     if args.addions != 0.0 and args.solvent == 'explicit':
         nna, ncl = ambertools.get_ions_number('leap.log', concentration=args.addions)
@@ -333,8 +314,6 @@ if 'prep' in args.step:
         if args.file_l:
             for file_l in mol2files_l:
                 ligname.append(ambertools.get_ligand_name(file_l))
-        if args.smd:
-            namdtools.create_steered_constrained_pdbfile('smd_ref.pdb', 'start.pdb', ligname)
         namdtools.create_constrained_pdbfile('namd_equil_res.pdb', 'start.pdb', ligname)
 
     os.chdir(pwd)
