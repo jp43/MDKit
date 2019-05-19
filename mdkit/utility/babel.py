@@ -64,6 +64,6 @@ class ArrangeHydrogens(AddHydrogens):
                 #print a.element, a.babel_type, nbonds, nHbonds, len(Hat)-nHat_p
 
         if len(Hat) != len(nonHat):
-            sys.exit("Number of hydrogens arranged do not match the initial number in the input file!")
+            raise IOError("Number of hydrogens arranged do not match the initial number in the input file!")
 
         return Hat, nonHat
