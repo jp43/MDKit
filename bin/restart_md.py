@@ -53,7 +53,7 @@ if os.path.isdir(args.workdir):
             new_mddir = args.workdir + '/md_1'
             new_index = 1
         else:
-            raise ValueError("No md folder found!")
+            raise ValueError("No MD folder found!")
     else:
         raise ValueError("Directory %s does not exist!"%commondir)
 else:
@@ -88,18 +88,24 @@ if os.path.isfile(mdinfo):
                 if nremaining_info <= ntpr:
                     sys.exit('Dynamics already done! No need to extend it!')
 
-# check the number of steps
 if restart_last_md:
-    if new_index == 1:
+    if new_index <= 1:
         raise ValueError("MD info not found (1st run)!")
     else:
         print "No MD info found, restarting dynamics from last run"
+    if new_index == 2:
+        new_index = new_index - 1
+        new_mddir = last_mddir
+        last_mddir = args.workdir + '/md'
+    else:
+        new_index = new_index - 1
+        new_mddir = last_mddir
+        last_mddir = args.workdir + '/md_%i'%(new_index-1)
+
     # purging unused files
     for ff in glob(last_mddir+'/*'):
         if os.path.basename(ff) != 'md.mdin':
             shutil.rmtree(ff, ignore_errors=True)
-    mddir_str = os.path.abspath(last_mddir)
-    new_index_str = str(new_index-1)
 else:
     # create new md dir
     os.mkdir(new_mddir)
@@ -126,14 +132,17 @@ else:
                     new_line = line
                 tmpf.write(new_line)
     shutil.move(new_mddir+'/md.mdin.tmp', new_mddir+'/md.mdin')
-    mddir_str = os.path.abspath(new_mddir)
-    new_index_str = str(new_index)
 
-with open('restart_md_%s.sh'%new_index_str, 'w') as shf:
+last_rstfile = last_mddir+'/md.rst'
+if os.path.isfile(last_rstfile):
+     last_rstfile_rel = os.path.relpath(last_mddir+'/md.rst', new_mddir)
+new_mddir_abs = os.path.abspath(new_mddir)
+
+with open('restart_md_%s.sh'%new_index, 'w') as shf:
    contents ="""#!/bin/bash
-cd %(mddir_str)s
+cd %(new_mddir_abs)s
 
 # production run
-%(exe)s -O -i md.mdin -o md.mdout -c ../min/min.rst -r md.rst -x md.mdcrd -inf md.mdinfo -p ../common/start.prmtop
+%(exe)s -O -i md.mdin -o md.mdout -c %(last_rstfile_rel)s -r md.rst -x md.mdcrd -inf md.mdinfo -p ../common/start.prmtop
 cd ..\n"""%locals()
    shf.write(contents)
