@@ -57,7 +57,7 @@ def check_import(pkgname, pkgver):
     globals()[pkgname] = mod
 
 setuptools.setup(name='mdkit',
-    version="0.0.8",
+    version="0.1.0",
     packages=['mdkit', 'mdkit.amber', 'mdkit.namd', 'mdkit.utility'],
     package_data = {'mdkit.amber': ['PROTON_INFO', 'atomic_ions.cmd']},
     scripts = ['bin/prepare_md.py', 'bin/restart_md.py', 'bin/run_mmpbsa.py', 'bin/cluster_w_amber.py', 'bin/minimize_w_amber.py', 'bin/pdb2mol2'],
