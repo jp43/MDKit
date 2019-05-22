@@ -378,7 +378,10 @@ def run_antechamber(infile, outfile, at='gaff', c='gas', logfile='antechamber.lo
             raise ValueError("Error when running antechamber!")
 
     if c is None or c.lower() == 'none' or (unrecognized_atom and skip_unrecognized_atoms): # do not regenerate charges
-       command = 'antechamber -i %(infile)s -fi %(ext)s -o %(outfile)s -fo mol2 -at %(at)s -du y -pf y > %(logfile)s'%locals()
+       if version in ['14', '15']:
+           command = 'antechamber -i %(infile)s -fi %(ext)s -o %(outfile)s -fo mol2 -at %(at)s -du y -pf y > %(logfile)s'%locals()
+       elif version in ['16', '17']:
+           command = 'antechamber -i %(infile)s -fi %(ext)s -o %(outfile)s -fo mol2 -at %(at)s -du y -pf y -dr no > %(logfile)s'%locals()
        utils.run_shell_command(command)
 
 def prepare_leap_config_file(script_name, file_r, files_l, file_rl, solvate=False, PBRadii=None, forcefield='ff14SB', nna=0, ncl=0, box='parallelepiped', distance=10.0, closeness=1.0, model='TIP3P', version='14', membrane=False):

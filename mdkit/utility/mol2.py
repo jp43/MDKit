@@ -2,7 +2,7 @@ import os
 import sys
 import shutil
 import subprocess
-
+import networkx as nx
 from utils import center_of_geometry 
 
 # recognized sections
@@ -202,8 +202,6 @@ def pdb2mol2(inputfile, outputfile, sample, keep_charges_from=None):
 
 def get_graph(inputfile):
 
-    import networkx as nx
-
     f = Reader(inputfile)
     struct = f.next()
     f.close()
@@ -347,7 +345,10 @@ def remove_atoms(struct, atomtype):
 
     return new_struct 
 
-def arrange_hydrogens(inputfile, outputfile):
+def arrange_hydrogens(inputfile, outputfile, path=None):
+
+    if path and path not in sys.path:
+        sys.path.append(path)
 
     from MolKit import Read
     from PyBabel.atomTypes import AtomHybridization

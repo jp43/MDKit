@@ -56,7 +56,7 @@ def do_minimization_after_docking(file_r, files_l, keep_hydrogens=False, charge_
 def prepare_minimization_config_file(script_name, ligname, ncyc=None, maxcyc=None, cut=None):
 
     with open(script_name, 'w') as minf:
-        script ="""In-Vacuo minimization with restraints
+        script ="""In-Vacuo minimization with constraints
 &cntrl
 imin=1,
 ntmin=1,
@@ -91,8 +91,6 @@ def prepare_and_minimize(output_file, ligname, charge_method=None, ncyc=None, ma
     return status
 
 def do_amber_minimization_after_docking(file_r, files_l, charge_method=None, ncyc=None, maxcyc=None, cut=None, version='14'):
-
-    version = utils.check_amber_version()
 
     file_l_tmp = 'ligand.mol2'
     for idx, file_l in enumerate(files_l):
