@@ -4,8 +4,7 @@ import subprocess
 import reader
 import numpy as np
 
-# required programs
-required_amber_programs = ['tleap', 'antechamber', 'parmchk']
+required_amber_programs=['tleap', 'antechamber', 'parmchk']
 
 def run_shell_command(cmd):
     try:
@@ -29,7 +28,7 @@ def check_amber_version():
         except ValueError:
             raise ValueError("Amber version not detected")
     else:
-        raise ValueError("AMBERHOME is not set! Check Amber manual") 
+        raise ValueError("AMBERHOME is not set! Check Amber manual!") 
 
 def center_of_geometry(coords):
     cog = np.array([0.0, 0.0, 0.0])

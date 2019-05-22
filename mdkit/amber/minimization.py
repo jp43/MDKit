@@ -12,7 +12,7 @@ from mdkit.utility import reader
 
 leap_default_settings = {'solvate': False, 'PBRadii': None, 'forcefield': 'leaprc.ff14SB'}
 
-def do_minimization_after_docking(file_r, files_l, keep_hydrogens=False, charge_method=None, ncyc=None, maxcyc=None, cut=None):
+def do_minimization_after_docking(file_r, files_l, keep_hydrogens=False, charge_method=None, ncyc=None, maxcyc=None, cut=None, amber_version='14'):
     """ do_minimization_after_docking(file_r, files_l, keep_hydrogens=False)
 
     Performs minimization with Amber after docking with MOBPredictor
@@ -50,7 +50,7 @@ def do_minimization_after_docking(file_r, files_l, keep_hydrogens=False, charge_
     ambertools.prepare_receptor('protein.pdb', file_r_abs, keep_hydrogens=keep_hydrogens)
 
     # amber minimization
-    do_amber_minimization_after_docking('protein.pdb', files_l_abs, charge_method=charge_method, ncyc=ncyc, maxcyc=maxcyc, cut=cut)
+    do_amber_minimization_after_docking('protein.pdb', files_l_abs, charge_method=charge_method, ncyc=ncyc, maxcyc=maxcyc, cut=cut, version=amber_version)
     os.chdir(curdir)
 
 def prepare_minimization_config_file(script_name, ligname, ncyc=None, maxcyc=None, cut=None):
@@ -90,7 +90,7 @@ def prepare_and_minimize(output_file, ligname, charge_method=None, ncyc=None, ma
     utils.run_shell_command('cpptraj -p start.prmtop -y start.inpcrd -x %s'%output_file)
     return status
 
-def do_amber_minimization_after_docking(file_r, files_l, charge_method=None, ncyc=None, maxcyc=None, cut=None):
+def do_amber_minimization_after_docking(file_r, files_l, charge_method=None, ncyc=None, maxcyc=None, cut=None, version='14'):
 
     version = utils.check_amber_version()
 
@@ -110,7 +110,7 @@ def do_amber_minimization_after_docking(file_r, files_l, charge_method=None, ncy
             ambertools.prepare_ligand(file_r, file_l_tmp, 'complex.pdb', charge_method=None, version=version)
 
         # prepare tleap config file
-        ambertools.prepare_leap_config_file('leap.in', file_r, file_l_tmp, 'complex.pdb', solvate=False)
+        ambertools.prepare_leap_config_file('leap.in', file_r, file_l_tmp, 'complex.pdb', solvate=False, version=version)
 
         ligname = ambertools.get_ligand_name(file_l_tmp)
         status = prepare_and_minimize('complex-out.pdb', ligname, ncyc=ncyc, maxcyc=maxcyc, cut=cut)
