@@ -94,23 +94,22 @@ def prepare_and_minimize(output_file, ligname, charge_method=None, ncyc=None, ma
 def do_amber_minimization_after_docking(file_r, files_l, charge_method=None, ncyc=None, maxcyc=None, cut=None, version='14'):
 
     for idx, file_l in enumerate(files_l):
-        file_l_current = os.path.basename(file_l)
         if idx == 0:
-            # generate charges
-            shutil.copyfile(file_l, file_l_current)
-            ambertools.prepare_ligand(file_r, file_l_current, 'complex.pdb', charge_method=charge_method, version=version)
-            shutil.copyfile(file_l_current, 'ligand-ref.mol2')
+            shutil.copyfile(file_l, 'ligand.mol2')
+            # re-generate charges
+            ambertools.prepare_ligand(file_r, 'ligand.mol2', 'complex.pdb', charge_method=charge_method, version=version)
+            shutil.copyfile('ligand.mol2', 'ligand-ref.mol2')
             ligname = ambertools.get_ligand_name('ligand-ref.mol2')
         else:
             # if not first one, do not regenerate the charges, copy charges generated the first time
             coords_l = mol2.get_coordinates(file_l)
             struct = mol2.Reader('ligand-ref.mol2').next()
             struct = mol2.replace_coordinates(struct, coords_l)
-            mol2.Writer().write(file_l_current, struct)
-            ambertools.prepare_ligand(file_r, file_l_current, 'complex.pdb', charge_method=None, version=version)
+            mol2.Writer().write('ligand.mol2', struct)
+            ambertools.prepare_ligand(file_r, 'ligand.mol2', 'complex.pdb', charge_method=None, version=version)
 
         # prepare tleap config file
-        ambertools.prepare_leap_config_file('leap.in', file_r, file_l_current, 'complex.pdb', solvate=False, version=version)
+        ambertools.prepare_leap_config_file('leap.in', file_r, 'ligand.mol2', 'complex.pdb', solvate=False, version=version)
         status = prepare_and_minimize('complex-out.pdb', ligname, ncyc=ncyc, maxcyc=maxcyc, cut=cut)
 
         if status == 0:
@@ -126,13 +125,7 @@ def do_amber_minimization_after_docking(file_r, files_l, charge_method=None, ncy
                             ligf.write(line)
                         is_ligand = False
 
-            suffix, ext = os.path.splitext(file_l_current)
+            basename_l = os.path.basename(file_l)
+            suffix, ext = os.path.splitext(basename_l)
             mol2file_out = suffix + '-out' + ext
             mol2.pdb2mol2('ligand-out.pdb', mol2file_out, file_l)
-
-        to_be_removed = ['antechamber.log', 'complex.pdb', 'complex-out.pdb', 'leap.in', 'leap.log', 'ligand-out.pdb', \
-'mdinfo', 'min.in', 'min.out', file_l_current]
-        for filename in to_be_removed:
-            if os.path.isfile(filename):
-                os.remove(filename)
-
