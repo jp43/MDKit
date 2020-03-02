@@ -488,7 +488,6 @@ def prepare_ligand(file_r, files_l, file_rl, charge_method='gas', version='14', 
         files_l = [files_l]
 
     mol2files_l = []
-
     shutil.copyfile(file_r, file_rl)
     for file_l in files_l:
         file_l_prefix, ext = os.path.splitext(file_l)
@@ -511,7 +510,6 @@ def prepare_ligand(file_r, files_l, file_rl, charge_method='gas', version='14', 
                     if line.startswith(('ATOM', 'HETATM')):
                         ffrl.write(line)
             ffrl.write('TER\n')
-
     return mol2files_l
 
 def charmmlipid2amber(filename):
