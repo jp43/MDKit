@@ -94,7 +94,7 @@ def prepare_and_minimize(output_file, ligname, charge_method=None, ncyc=None, ma
 def do_amber_minimization_after_docking(file_r, files_l, charge_method=None, ncyc=None, maxcyc=None, cut=None, version='14'):
 
     for idx, file_l in enumerate(files_l):
-	file_l_current = os.path.basename(file_l)
+        file_l_current = os.path.basename(file_l)
         if idx == 0:
             # generate charges
             shutil.copyfile(file_l, file_l_current)
