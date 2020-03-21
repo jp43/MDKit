@@ -8,8 +8,16 @@ import numpy as np
 
 from mdkit.utility import reader
 from mdkit.utility import utils
-
 import clustering
+
+def get_last_solute_atom_num(filename):
+    with open(filename) as pdbf:
+        for line in pdbf:
+            if line.startswith(('ATOM', 'HETATM')):
+                resname = line[17:20].strip()
+                if resname == 'WAT':
+                    return str(int(line[6:11].strip())-1)
+    return str(int(line[6:11].strip()))
 
 def get_nwaters(logfile):
 
@@ -136,7 +144,6 @@ rms nofit :%(ligname)s&!@H= out rmsd.dat"""% locals()
     return values
 
 def get_solvent_mask(pdbfile, residues='WAT'):
-
     solvent_residues = map(str.strip, residues.split(','))
 
     # set residue numbers
@@ -152,21 +159,35 @@ def get_solvent_mask(pdbfile, residues='WAT'):
 
     resnum_fin = resnum
     solvent_mask = ':%s-%s'%(resnum_in, resnum_fin)
-
     return solvent_mask
+
+def get_lipid_mask(pdbfile):
+    return get_solvent_mask(pdbfile, 'CHL,LA,MY,OL,PA,PC,PE')
 
 def get_ions_number(logfile, concentration=0.15, version='14'):
 
     # Nions = Cions * Nwater * 1/55.5 where 55.5 M is the concentration of pure water
     with open(logfile, 'r') as lf:
         for line in lf:
-            line_s = line.strip().split()
-            if len(line_s) > 2:
-                if line_s[0] == 'Added' and line_s[2] == 'residues.':
-                    nresidues = int(line_s[1])
-                    ncl = int(round(nresidues * concentration / 55.5))
-                    nna = ncl
-            if line.startswith("WARNING: The unperturbed charge"):
+            line_s = line.split()
+            if version in ['14', '15']:
+                if len(line_s) > 2 and line_s[0] == 'Added' and line_s[2] == 'residues.':
+                    nwaters = int(line_s[1])
+                    break
+            elif version in ['16', '17']:
+                if len(line_s) == 2 and line_s[0] == 'WAT':
+                    nwaters = int(line_s[1])
+                    break
+            else:
+                sys.exit("get_ions_number only working with version 14 or 16 of Amber")
+
+    ncl = int(round(nwaters * concentration / 55.5))
+    nna = int(ncl)
+
+    with open(logfile, 'r') as lf:
+        for line in lf:
+            line_s = line.split()
+            if len(line_s) >= 8 and line.startswith("WARNING: The unperturbed charge"):
                 net_charge = int(round(float(line_s[7])))
                 if net_charge > 0:
                     ncl += abs(net_charge)
@@ -435,9 +456,12 @@ def prepare_leap_config_file(script_name, file_r, files_l, file_rl, solvate=Fals
             ions_libraries_lines = """\nloadamberparams frcmod.ionsjc_%(suffix_ions_libraries)s
 loadamberparams frcmod.ionslm_1264_%(suffix_ions_libraries)s"""%locals()
     elif membrane:
-        forcefield_lines += '\nsource leaprc.lipid14'
-        box_dx, box_dy, box_dz = utils.get_box_dimensions(file_r, mask=['WAT'])
-        set_box_line = "\nset complex box { %.3f %.3f %.3f }"%(box_dx, box_dy, box_dz)
+        if version in ['14', '15']:
+            sys.exit("Membrane option not implemented for Amber 14 or 15")
+        elif version in ['16', '17']:
+            forcefield_lines += '\nsource leaprc.lipid14'
+            box_dx, box_dy, box_dz = utils.get_box_dimensions(file_r, mask=['WAT'])
+            set_box_line = "\nset complex box { %.3f %.3f %.3f }"%(box_dx, box_dy, box_dz)
 
     if PBRadii:
         pbradii_lines = "\nset default PBRadii %s"%PBRadii
@@ -513,6 +537,7 @@ def prepare_ligand(file_r, files_l, file_rl, charge_method='gas', version='14', 
     return mol2files_l
 
 def charmmlipid2amber(filename):
+    """Convert charmm PDB file to Amber format"""
 
     amberhome = os.getenv('AMBERHOME')
     if amberhome == None:

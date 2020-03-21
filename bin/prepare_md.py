@@ -37,7 +37,7 @@ parser.add_argument('-r',
     help="PDB input file for protein (1 structure)")
 
 parser.add_argument('-l',
-    dest='file_l',
+    dest='files_l',
     required=False,
     default=None,
     nargs='+',
@@ -72,6 +72,17 @@ parser.add_argument('-cut',
     default=None,
     help="Cutoff for non-bonded interactions in angstroms (default (explicit): 10.0, default (implicit, vacuo): 999.0)")
 
+parser.add_argument('-efn',
+    dest='efn',
+    default=0,
+    type=int,
+    help="Normalize electic field by box length in Z direction (Voltage in kcal/(mol*e))")
+
+parser.add_argument('-efz',
+    dest='efz',
+    default=None,
+    help="Electric field in Z direction (in kcal/(mol*A*e))")
+
 parser.add_argument('-hem',
     dest='hem',
     action='store_true',
@@ -95,11 +106,6 @@ parser.add_argument('-iwrap',
     default=0,
     help="Value of iwrap for production run (default: 1, i.e., the coordinates written to the restart and trajectory files are not wrapped into a primary box)")
 
-parser.add_argument('-lb',
-    dest='lower_bound',
-    default=8.0,
-    help="Lower bound for binding site")
-
 parser.add_argument('-membrane',
     dest='membrane',
     action='store_true',
@@ -118,33 +124,33 @@ parser.add_argument('-np',
 
 parser.add_argument('-maxcyc_s',
     dest='maxcyc_s',
-    default=2000,
-    help="Minimization (solvent): maxcyc (default: 2000)")
+    default=10000,
+    help="Minimization (solvent): maxcyc (default: 10000)")
 
 parser.add_argument('-maxcyc',
     dest='maxcyc',
-    default=5000,
-    help="Minimization (full): maxcyc (default: 5000)")
+    default=10000,
+    help="Minimization (full): maxcyc (default: 10000)")
 
 parser.add_argument('-ncyc_s',
     dest='ncyc_s',
-    default=500,
-    help="Minimization (solvent): ncyc (default: 500)")
+    default=5000,
+    help="Minimization (solvent): ncyc (default: 5000)")
 
 parser.add_argument('-ncyc',
     dest='ncyc',
-    default=2000,
-    help="Minimization (full): ncyc (default: 2000)")
+    default=5000,
+    help="Minimization (full): ncyc (default: 5000)")
 
-parser.add_argument('-nstlim_h',
-    dest='nstlim_h',
+parser.add_argument('-nstlim_nvt',
+    dest='nstlim_nvt',
     default=10000,
     help="NVT: nstlim (default: 10000)")
 
-parser.add_argument('-nstlim_e',
-    dest='nstlim_e',
+parser.add_argument('-nstlim_npt',
+    dest='nstlim_npt',
     default=20000,
-    help="NPT: nstlim (default: 10000)")
+    help="NPT: nstlim (default: 20000)")
 
 parser.add_argument('-nstlim',
     dest='nstlim',
@@ -153,17 +159,20 @@ parser.add_argument('-nstlim',
 
 parser.add_argument('-ntpr',
     dest='ntpr',
+    type=int,
     default=50,
     help="Production: ntpr and ntwr for restart files (default: 50)")
 
 parser.add_argument('-ntwprt',
     dest='ntwprt',
     type=int,
+    choices=[0, 1],
     default=0,
-    help="Atoms to include in trajectory file, 0: include solvent, 1: no solvent (default: 0)")
+    help="Atoms to include in trajectory file, 0: all atoms, 1: no solvent (default: 0)")
 
 parser.add_argument('-ntwx',
     dest='ntwx',
+    type=int,
     default=0,
     help="Production: ntwx (default: 0)")
 
@@ -180,10 +189,9 @@ parser.add_argument('-pbradii',
     help="Set PBRadii option consistent with igb value.")
 
 parser.add_argument('-rst',
-    dest='restraints',
-    type=str,
-    default=None,
-    help="Restraints (None, backbone)")
+    dest='rstfile',
+    required=False,
+    help=".rst file used when restarting MD (works only when -st md)")
 
 parser.add_argument('-s',
     dest='script_name',
@@ -241,208 +249,176 @@ locals().update(args.__dict__)
 # get amber version
 amber_version = utils.check_amber_version()
 
+# check electric field option
+if not amber_version in ['16', '17'] and efz is not None:
+    sys.exit('Electric field option only supported for Amber 16 or 17')
+elif efz:
+    ef_lines = "\nefz=%s"%efz
+    if efn == 1:
+        ef_lines += ", efn=1"
+else:
+    ef_lines = "" 
+
+if rstfile is not None and step != ['md']:
+    sys.exit("rst flag can only be used with -st md")
+elif step == ['md']:
+    if not os.path.isfile(rstfile):
+        sys.exit("No rst file found: %s"%rstfile)
+
 # save current directory
 pwd = os.getcwd()
 
-if args.file_r:
+if file_r is not None:
     # get absolute paths of ligand and receptor files
-    file_r_abspath = os.path.abspath(args.file_r)
+    file_r_abspath = os.path.abspath(file_r)
 else:
     raise ValueError('Receptor file should be provided!')
 
-if args.file_l:
-    files_l = [os.path.abspath(file_l) for file_l in args.file_l]
+if files_l is not None:
+    files_l_abspath = [os.path.abspath(filename) for filename in files_l]
 
 # ----- SET WORKING DIRECTORY ------
-if args.workdir:
-    workdir_r = os.path.abspath(args.workdir)
+if workdir is not None:
+    workdir_abspath = os.path.abspath(workdir)
 else:
     dir_r = os.path.dirname(file_r_abspath)
     file_r_prefix, ext = os.path.splitext(os.path.basename(file_r_abspath))
-
-    workdir_r = dir_r + '/' + file_r_prefix
+    workdir_abspath = dir_r + '/' + file_r_prefix
 
 # ------- STEP 1: preparation -------
-if 'prep' in args.step:
-    shutil.rmtree(workdir_r, ignore_errors=True)
-    os.mkdir(workdir_r)
+if 'prep' in step:
+    shutil.rmtree(workdir_abspath, ignore_errors=True)
+    os.mkdir(workdir_abspath)
 
-    workdir = workdir_r + '/common'
-    shutil.rmtree(workdir, ignore_errors=True)
-    os.makedirs(workdir)
-    os.chdir(workdir)
+    workdir_curr = workdir_abspath + '/common'
+    shutil.rmtree(workdir_curr, ignore_errors=True)
+    os.makedirs(workdir_curr)
+    os.chdir(workdir_curr)
 
-    ambertools.prepare_receptor('protein.pdb', file_r_abspath, keep_hydrogens=args.keeph, membrane=args.membrane)
-
+    ambertools.prepare_receptor('protein.pdb', file_r_abspath, keep_hydrogens=keeph, membrane=membrane)
     # ligand preparation
-    if args.file_l:
+    if files_l is not None:
         files_l_new = []
         # preparing ligand(s)...
-        for file_l in files_l:
-            name = ambertools.get_ligand_name(file_l)
+        for filename in files_l_abspath:
+            name = ambertools.get_ligand_name(filename)
 
-            prefix, ext = os.path.splitext(file_l)
-            file_l_new = 'ligand_%s%s'%(name, ext)
-            shutil.copyfile(file_l, file_l_new)
-            files_l_new.append(file_l_new)
+            prefix, ext = os.path.splitext(filename)
+            filename_new = 'ligand_%s%s'%(name, ext)
+            shutil.copyfile(filename, filename_new)
+            files_l_new.append(filename_new)
 
-        files_l = files_l_new
-        mol2files_l = ambertools.prepare_ligand('protein.pdb', files_l, 'complex.pdb', charge_method=args.charge_method, version=amber_version, skip_unrecognized_atoms=args.hem)
+        mol2files_l = ambertools.prepare_ligand('protein.pdb', files_l_new, 'complex.pdb', charge_method=charge_method, \
+version=amber_version, skip_unrecognized_atoms=hem)
     else:
         mol2files_l = None
 
-    if args.solvent == 'explicit' and not args.membrane:
+    # should solvate??
+    if solvent == 'explicit' and membrane is None:
         solvate = True
     else:
         solvate = False
 
-    if args.pbradii:
-        PBRadii = known_pbradii[args.igb]
+    # get pdbradii
+    if pbradii is not None:
+        PBRadii = known_pbradii[igb]
     else:
         PBRadii = None
 
-    ambertools.prepare_leap_config_file('leap.in', 'protein.pdb', mol2files_l, 'complex.pdb', solvate=solvate, box=args.box, distance=args.boxsize, model=args.water, version=amber_version, PBRadii=PBRadii, membrane=args.membrane)
+    ambertools.prepare_leap_config_file('leap.in', 'protein.pdb', mol2files_l, 'complex.pdb', solvate=solvate, \
+box=box, distance=boxsize, model=water, version=amber_version, PBRadii=PBRadii, membrane=membrane)
     utils.run_shell_command('tleap -f leap.in')
 
-    if args.addions != 0.0 and args.solvent == 'explicit':
-        nna, ncl = ambertools.get_ions_number('leap.log', concentration=args.addions)
-        ambertools.prepare_leap_config_file('leap.in', 'protein.pdb', mol2files_l, 'complex.pdb', solvate=solvate, box=args.box, distance=args.boxsize, nna=nna, ncl=ncl, model=args.water, version=amber_version, PBRadii=PBRadii)
+    if addions != 0.0 and solvate:
+        nna, ncl = ambertools.get_ions_number('leap.log', concentration=addions, version=amber_version)
+        ambertools.prepare_leap_config_file('leap.in', 'protein.pdb', mol2files_l, 'complex.pdb', solvate=solvate, \
+box=box, distance=boxsize, nna=nna, ncl=ncl, model=water, version=amber_version, PBRadii=PBRadii)
         utils.run_shell_command('tleap -f leap.in')
 
-    if args.namd:
+    if namd:
         ligname = []
-        if args.file_l:
-            for file_l in mol2files_l:
-                ligname.append(ambertools.get_ligand_name(file_l))
+        for file_l in mol2files_l:
+            ligname.append(ambertools.get_ligand_name(file_l))
         namdtools.create_constrained_pdbfile('namd_equil_res.pdb', 'start.pdb', ligname)
-
     os.chdir(pwd)
 
-if args.partition == 'gpu':
-    script = """#!/bin/bash
-#SBATCH --time=100-00:00
-#SBATCH --partition=%(partition)s
-#SBATCH --job-name="md"
-#SBATCH --cpus-per-task=%(ncpus)s
-
+script = """#!/bin/bash
 set -e
 \n"""%locals()
-else:
-    script = """#!/bin/bash
-#SBATCH --time=100-00:00
-#SBATCH --partition=%(partition)s
-#SBATCH --job-name="md"
-#SBATCH --ntasks=%(ncpus)s
-#SBATCH --cpus-per-task=1
-#SBATCH --nodes=1
 
-set -e\n"""%locals()
-
-if args.partition == 'gpu':
-    if amber_version in ['14', '15']:
-        script += """export AMBERHOME=/nfs/r510-2/pwinter/PharmaApps/build/amber/gpu/amber14
-export CUDA_HOME=/usr/local/cuda-9.1
-export PATH=$CUDA_HOME/bin:$PATH
-export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
-source $AMBERHOME/amber.sh
-export CUDA_VISIBLE_DEVICES=`/usr/bin/select_gpu.py`
-\n"""%locals()
-    elif amber_version in ['16', '17']:
-        script += """export AMBERHOME=/nfs/r510-2/pwinter/PharmaApps/build/amber/amber16/gpu/amber16
-export CUDA_HOME=/usr/local/cuda-9.1
-export PATH=$CUDA_HOME/bin:$PATH
-export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
-source $AMBERHOME/amber.sh
-export CUDA_VISIBLE_DEVICES=`/usr/bin/select_gpu.py`
-\n"""%locals()
+if partition == 'gpu':
     exe = 'pmemd.cuda'
+    cpptrajexe = 'cpptraj.cuda'
 else:
-    if args.ncpus == 1:
+    if ncpus == 1:
       exe = 'sander'
-    elif args.ncpus > 1:
+    elif ncpus > 1:
       exe = 'mpirun -np %(ncpus)s sander.MPI'%locals()
     else:
         raise ValueError('Number of CPUS (-np) should be greater or equal to 1')
-
-script += "cd %(workdir_r)s\n"""%locals()
-
-# ------- RESTRAINTS ---------
-if args.restraints:
-    if args.restraints == "backbone":
-        restraints_lines = """\nntr=1, restraint_wt=5.0,
-restraintmask='@CA,C,N,O&!:WAT',"""
-    else:
-        restraints_lines = args.restraints
-else:
-    restraints_lines = ""
+    cpptrajexe = 'cpptraj'
+script += "cd %s\n"""%os.path.relpath(workdir_abspath)
 
 # ------- STEP 2: minimization -------
-if 'min' in args.step:
-    workdir = workdir_r + '/min'
-    shutil.rmtree(workdir, ignore_errors=True) 
-    os.mkdir(workdir)
+if 'min' in step:
+    workdir_curr = workdir_abspath + '/min'
+    shutil.rmtree(workdir_curr, ignore_errors=True) 
+    os.mkdir(workdir_curr)
 
-    if args.solvent == 'explicit':
-        solvent_mask = ambertools.get_solvent_mask(workdir_r+'/common/start.pdb', residues='WAT,Na+,Cl-')
- 
-        if args.restraints:
-            ref_flag = ' -ref min1.rst'
-        else:
-            ref_flag = ''
+    if solvent == 'explicit':
+        solvent_mask = ambertools.get_solvent_mask(workdir_abspath+'/common/start.pdb', residues='WAT,Na+,K+,Cl-')
 
-        with open(workdir+'/min1.in', 'w') as min1f:
+        with open(workdir_curr+'/min1.in', 'w') as min1f:
             min1f.write("""Minimization 1 solvent + ions
 &cntrl
 imin=1,
 maxcyc=%(maxcyc_s)s,
 ncyc=%(ncyc_s)s,
 ntpr=100,
-ntb=1,
+ntp=0, ntb=1,
 cut=%(cut)s,
-ntr=1,restraint_wt=100.0,
+ntr=1,restraint_wt=10.0,
 restraintmask='!%(solvent_mask)s&!@H='
 /\n"""%locals())
 
-        with open(workdir+'/min2.in', 'w') as min2f:
+        with open(workdir_curr+'/min2.in', 'w') as min2f:
             min2f.write("""Minimization 2 (full structure)
 &cntrl
 imin=1,
 maxcyc=%(maxcyc)s,
 ncyc=%(ncyc)s,
 ntpr=100,
-ntb=1,
+ntp=0, ntb=1,
 cut=%(cut)s,
 /\n"""%locals())
 
         script += """\ncd min
-# minimization with restrains
+# minimization with restraints
 %(exe)s -O -i min1.in -p ../common/start.prmtop -c ../common/start.inpcrd -o min1.out -r min1.rst -ref ../common/start.inpcrd
 
 # minimization (full structure)
-%(exe)s -O -i min2.in -p ../common/start.prmtop -c min1.rst -o min2.out -r min2.rst%(ref_flag)s
+%(exe)s -O -i min2.in -p ../common/start.prmtop -c min1.rst -o min2.out -r min2.rst
 
 # convert final structure to PDB
-cpptraj -p ../common/start.prmtop -y min2.rst -x min2.pdb
+%(cpptrajexe)s -p ../common/start.prmtop -y min2.rst -x min2.pdb
 cd ..\n"""%locals()
 
-    elif args.solvent in ['vacuo', 'implicit']:
-
-        # input files follow examples at: http://ambermd.org/tutorials/basic/tutorial1/section3.htm and
-        # http://ambermd.org/tutorials/basic/tutorial1/section4.htm
-        if args.solvent == 'vacuo':
+    elif solvent in ['vacuo', 'implicit']:
+        # source: http://ambermd.org/tutorials/basic/tutorial1/section3.htm
+        if solvent == 'vacuo':
             title = 'In-Vacuo minimization'
             igb_line = '\nigb=0,'
-        elif args.solvent == 'implicit':
+        elif solvent == 'implicit':
             title = 'Minimization (implicit solvent)'
-            igb_line = '\nigb=%i,'%args.igb
+            igb_line = '\nigb=%i,'%igb
 
-        with open(workdir+'/min.in', 'w') as minf:
+        with open(workdir_curr+'/min.in', 'w') as minf:
             minf.write("""%(title)s
 &cntrl
 imin=1,
 maxcyc=%(maxcyc)s,
 ncyc=%(ncyc)s,
-ntb=0,%(igb_line)s
+ntp=0, ntb=0,%(igb_line)s
 cut=%(cut)s,
 /\n"""%locals())
 
@@ -451,136 +427,266 @@ cut=%(cut)s,
 %(exe)s -O -i min.in -p ../common/start.prmtop -c ../common/start.inpcrd -o min.out -r min.rst -ref ../common/start.inpcrd
 
 # convert final structure to PDB
-cpptraj -p ../common/start.prmtop -y min.rst -x min.pdb
+%(cpptrajexe)s -p ../common/start.prmtop -y min.rst -x min.pdb
 cd ..\n"""%locals()
 
 
 # ------- STEP 3: heating -------
-if 'nvt' in args.step and args.solvent == 'explicit':
-    workdir = workdir_r + '/nvt'
+if 'nvt' in step and solvent == 'explicit':
+    workdir_curr = workdir_abspath + '/nvt'
 
-    shutil.rmtree(workdir, ignore_errors=True)
-    os.mkdir(workdir)
+    shutil.rmtree(workdir_curr, ignore_errors=True)
+    os.mkdir(workdir_curr)
 
-    if args.restraints:
-        ref_flag = ' -ref ../min/min2.rst'
-    else:
-        ref_flag = ''
-
-    with open(workdir+'/nvt.mdin', 'w') as nvtf:
-        nvtf.write("""Equilibration in NVT ensemble
+    if membrane:
+        # source: http://ambermd.org/tutorials/advanced/tutorial16
+        lipid_mask = ambertools.get_lipid_mask(workdir_abspath+'/common/start.pdb')
+        with open(workdir_curr+'/nvt1.mdin', 'w') as nvtf:
+            nvtf.write("""Heating in NVT ensemble
 &cntrl
-nstlim=%(nstlim_h)s,
+nstlim=2500,
+dt=0.002,
+ntpr=1000,
+ig=-1,
+tempi=0.0, temp0=100.0,
+ntt=3, gamma_ln=1.0, 
+ntp=0, ntb=1,
+cut=%(cut)s,
+ntc=2, ntf=2
+ntr=1,restraint_wt=10.0,
+restraintmask='%(lipid_mask)s&!@H='
+/\n"""%locals())
+
+        with open(workdir_curr+'/nvt2.mdin', 'w') as nvtf:
+            nvtf.write("""Heating in NPT ensemble (anisotropic barostat)
+&cntrl
+nstlim=%(nstlim_nvt)s,
+dt=0.002,
+ntpr=1000,
+ig=-1,
+tempi=100.0, temp0=%(temp)s,
+ntt=3, gamma_ln=1.0, 
+ntb=2, ntp=2,
+pres0=1.0, taup=2.0,
+cut=%(cut)s,
+irest=1, ntx=5,
+ntc=2, ntf=2
+ntr=1,restraint_wt=10.0,
+restraintmask='%(lipid_mask)s&!@H='
+/\n"""%locals())
+
+        script += """\ncd nvt
+# run heating 1
+%(exe)s -O -i nvt1.mdin -o nvt1.mdout -c ../min/min2.rst -r nvt1.rst -x nvt1.mdcrd -inf nvt1.mdinfo -p ../common/start.prmtop -ref ../min/min2.rst
+
+# run heating 2
+%(exe)s -O -i nvt2.mdin -o nvt2.mdout -c nvt1.rst -r nvt2.rst -x nvt2.mdcrd -inf nvt2.mdinfo -p ../common/start.prmtop -ref nvt1.rst
+cd ..\n"""%locals()
+
+    else:
+        with open(workdir_curr+'/nvt.mdin', 'w') as nvtf:
+            nvtf.write("""Equilibration in NVT ensemble
+&cntrl
+nstlim=%(nstlim_nvt)s,
 dt=0.002,
 ntpr=1000,
 ig=-1,
 tempi=0.0, temp0=%(temp)s,
-ntt=1,
-tautp=2.0,
-ntb=1, ntp=0,
+ntt=1, tautp=2.0, 
+ntp=0, ntb=1,
 cut=%(cut)s,
-ntc=2, ntf=2,%(restraints_lines)s
+ntc=2, ntf=2
 /\n"""%locals())
 
-    script += """\ncd nvt
+        script += """\ncd nvt
 # run heating
-%(exe)s -O -i nvt.mdin -o nvt.mdout -c ../min/min2.rst -r nvt.rst -x nvt.mdcrd -inf nvt.mdinfo -p ../common/start.prmtop%(ref_flag)s
+%(exe)s -O -i nvt.mdin -o nvt.mdout -c ../min/min2.rst -r nvt.rst -x nvt.mdcrd -inf nvt.mdinfo -p ../common/start.prmtop
 cd ..\n"""%locals()
 
 # ------- STEP 4: equilibration -------
-if 'npt' in args.step and args.solvent == 'explicit':
-    workdir = workdir_r + '/npt'
+if 'npt' in step and solvent == 'explicit':
+    workdir_curr = workdir_abspath + '/npt'
 
-    shutil.rmtree(workdir, ignore_errors=True)
-    os.mkdir(workdir)
+    shutil.rmtree(workdir_curr, ignore_errors=True)
+    os.mkdir(workdir_curr)
 
-    if args.restraints:
-        ref_flag = ' -ref ../nvt/nvt.rst'
-    else:
-        ref_flag = ''
-
-    with open(workdir+'/npt.mdin', 'w') as nptf:
-        nptf.write("""Equilibration in NPT ensemble
+    if membrane:
+        # source: http://ambermd.org/tutorials/advanced/tutorial16
+        with open(workdir_curr+'/npt.mdin', 'w') as nptf:
+            nptf.write("""Equilibration in NPT ensemble
 &cntrl
-nstlim=%(nstlim_e)s,
+nstlim=%(nstlim_npt)s,
 dt=0.002,
 ig=-1,
 temp0=%(temp)s,
-ntt=3, gamma_ln=1.0, tautp=2.0,
-ntb=2, pres0=1.0, ntp=1, taup=2.0,
+ntt=3, gamma_ln=1.0,
+ntp=2, ntb=2,
+pres0=1.0, taup=2.0,
 cut=%(cut)s,
 irest=1, ntx=5,
 ntc=2, ntf=2,
-ntpr=500,%(restraints_lines)s
+ntpr=500
+/
+&ewald
+skinnb=5, ! Increase skinnb to avoid skinnb errors
 /\n"""%locals())
 
-    script += """\ncd npt
+        script += "\ncd npt\n# run equilibration"
+        for idx in range(10):
+            if idx == 0:
+                script += """\n%s -O -i npt.mdin -o npt%i.mdout -c ../nvt/nvt2.rst -r npt%i.rst -x npt%i.mdcrd -inf npt%i.mdinfo \
+-p ../common/start.prmtop"""%(exe,idx+1,idx+1,idx+1,idx+1)
+            else:
+                script += """\n%s -O -i npt.mdin -o npt%i.mdout -c npt%i.rst -r npt%i.rst -x npt%i.mdcrd -inf npt%i.mdinfo \
+-p ../common/start.prmtop"""%(exe,idx+1,idx,idx+1,idx+1,idx+1)
+        script += "\ncd ..\n"
+
+    else:
+        with open(workdir_curr+'/npt.mdin', 'w') as nptf:
+            nptf.write("""Equilibration in NPT ensemble
+&cntrl
+nstlim=%(nstlim_npt)s,
+dt=0.002,
+ig=-1,
+temp0=%(temp)s,
+ntt=3, gamma_ln=1.0,
+ntp=1, ntb=2,
+pres0=1.0, taup=2.0,
+cut=%(cut)s,
+irest=1, ntx=5,
+ntc=2, ntf=2,
+ntpr=500
+/\n"""%locals())
+
+        script += """\ncd npt
 # run equilibration
-%(exe)s -O -i npt.mdin -o npt.mdout -c ../nvt/nvt.rst -r npt.rst -x npt.mdcrd -inf npt.mdinfo -p ../common/start.prmtop%(ref_flag)s
+%(exe)s -O -i npt.mdin -o npt.mdout -c ../nvt/nvt.rst -r npt.rst -x npt.mdcrd -inf npt.mdinfo -p ../common/start.prmtop
 cd ..\n"""%locals()
 
 
 # ------- STEP 5: production -------
-if 'md' in args.step:
-    mddir = 'md'
-    workdir = workdir_r + '/' + mddir
+if 'md' in step:
+    if rstfile is None:
+        mddir = 'md'
+        workdir_curr = workdir_abspath + '/' + mddir
 
-    shutil.rmtree(workdir, ignore_errors=True)
-    os.mkdir(workdir)
+        shutil.rmtree(workdir_curr, ignore_errors=True)
+        os.mkdir(workdir_curr)
 
-    if args.restraints and solvent == 'explicit':
-        ref_flag = " -ref ../npt/npt.rst"
+        startpdb = workdir_abspath + '/common/start.pdb'
+        prmtop = os.path.relpath(workdir_abspath+'/common/start.prmtop', workdir_curr) 
     else:
-        ref_flag = ""
+        rstdir = os.path.relpath(os.path.dirname(rstfile))
+        rstdir_s = rstdir.split('/')
+        if len(rstdir_s) > 1:
+            workdir_rst = '/'.join(rstdir_s[:-1])
+        else:
+            workdir_rst = '.'
+        if workdir_rst == os.path.relpath(workdir_abspath):
+            idx = 1
+            mddir = 'md'
+            while os.path.isdir(workdir_abspath+'/'+mddir):
+                if idx == 1:
+                    mddir = 'md_ext'
+                else:
+                    mddir = 'md_ext_' + str(idx)
+                idx += 1
+        else:
+            mddir = 'md'
+        workdir_curr = workdir_abspath + '/' + mddir
+        shutil.rmtree(workdir_curr, ignore_errors=True)
+        os.makedirs(workdir_curr)
+
+        startpdb = workdir_rst + '/common/start.pdb'
+        prmtop = os.path.relpath(workdir_rst+'/common/start.prmtop', workdir_curr)
 
     if solvent == 'explicit':
-        ntwprt_lines = ""
-        if args.ntwprt == 1:
-            with open(workdir_r+'/common/start.pdb') as pdbf:
-                for line in pdbf:
-                    if line.startswith(('ATOM', 'HETATM')):
-                        resname = line[17:20].strip()
-                        if resname == 'WAT':
-                            last_protein_atom = int(line[6:11].strip())-1
-                            break
-            ntwprt_lines = " ntwprt=%s,"%last_protein_atom
- 
-        with open(workdir+'/md.mdin', 'w') as mdf:
-            mdf.write("""MD production
+        # get ntwprt string from option value
+        if ntwprt == 0:
+            ntwprt_str = ""
+        else:
+            last_protein_atom = ambertools.get_last_solute_atom_num(startpdb)
+            ntwprt_str = "\nntwprt=%s,"%last_protein_atom
+
+        # fix barostat options if electric field is enabled
+        if efz is None and membrane:
+            barostat = "\nntp=2, ntb=2,\npres0=1.0, taup=2.0,"
+        elif efz is None and not membrane:
+            barostat = "\nntp=1, ntb=2,\npres0=1.0, taup=2.0,"
+        else:
+            barostat = "\nntp=0, ntb=1,"
+
+        if membrane:
+            if rstfile is not None:
+                rstfile = os.path.relpath(rstfile, workdir_curr)
+            else:
+                rstfile = "../npt/npt10.rst"
+
+            # source: http://ambermd.org/tutorials/advanced/tutorial16
+            with open(workdir_curr+'/md.mdin', 'w') as mdf:
+                mdf.write("""MD production
 &cntrl
 nstlim=%(nstlim)s,
 dt=0.002,
 ig=-1,
 temp0=%(temp)s,
-ntt=3, gamma_ln=1.0, tautp=2.0,
-ntb=2, pres0=1.0, ntp=1, taup=2.0,
+ntt=3, gamma_ln=1.0,%(barostat)s
 cut=%(cut)s,
 irest=1, ntx=5,
 iwrap=%(iwrap)s,
 ntc=2, ntf=2,
-ntpr=%(ntpr)s, ntwr=%(ntpr)s, ntwx=%(ntwx)s,%(ntwprt_lines)s%(restraints_lines)s
+ntpr=%(ntpr)s, ntwr=%(ntpr)s, ntwx=%(ntwx)s,%(ntwprt_str)s%(ef_lines)s
 /\n"""%locals())
 
-        script += """\ncd %(mddir)s
+            script += """\ncd %(mddir)s
+# run equilibration
+%(exe)s -O -i md.mdin -o md.mdout -c %(rstfile)s -r md.rst -x md.mdcrd -inf md.mdinfo -p %(prmtop)s
+cd ..\n"""%locals()
+
+        else:
+            if rstfile is not None:
+                rstfile = os.path.relpath(rstfile, workdir_curr)
+            else:
+                rstfile = "../npt/npt.rst"
+            with open(workdir_curr+'/md.mdin', 'w') as mdf:
+                mdf.write("""MD production
+&cntrl
+nstlim=%(nstlim)s,
+dt=0.002,
+ig=-1,
+temp0=%(temp)s,
+ntt=3, gamma_ln=1.0,%(barostat)s
+cut=%(cut)s,
+irest=1, ntx=5,
+iwrap=%(iwrap)s,
+ntc=2, ntf=2,
+ntpr=%(ntpr)s, ntwr=%(ntpr)s, ntwx=%(ntwx)s,%(ntwprt_str)s%(ef_lines)s
+/\n"""%locals())
+
+            script += """\ncd %(mddir)s
 # production run
-%(exe)s -O -i md.mdin -o md.mdout -c ../npt/npt.rst -r md.rst -x md.mdcrd -inf md.mdinfo -p ../common/start.prmtop%(ref_flag)s
+%(exe)s -O -i md.mdin -o md.mdout -c %(rstfile)s -r md.rst -x md.mdcrd -inf md.mdinfo -p %(prmtop)s
 cd ..\n"""%locals()
 
     else: # implicit solvent
-        if args.solvent == 'vacuo':
+        if solvent == 'vacuo':
             title = 'MD Production (In-Vacuo)'
             igb_line = '\nigb=0,'
-        elif args.solvent == 'implicit':
+        elif solvent == 'implicit':
             title = 'MD Production (implicit solvent)'
-            igb_line = '\nigb=%i,'%args.igb
+            igb_line = '\nigb=%i,'%igb
 
-        with open(workdir+'/md.mdin', 'w') as mdf:
+        if rstfile is not None:
+            rstfile = os.path.relpath(rstfile, workdir_curr)
+        else:
+            rstfile = "../min/min.rst"
+        with open(workdir_curr+'/md.mdin', 'w') as mdf:
             mdf.write("""%(title)s
 &cntrl
 nstlim=%(nstlim)s,
 dt=0.002,
 ig=-1,
-tempi=%(temp)s, temp0=%(temp)s,
+temp0=%(temp)s,
 ntt=3, gamma_ln=1.0,
 ntb=0,%(igb_line)s
 cut=%(cut)s,
@@ -589,9 +695,9 @@ ntpr=%(ntpr)s, ntwr=%(ntpr)s, ntwx=%(ntwx)s
 
         script += """\ncd %(mddir)s
 # production run
-%(exe)s -O -i md.mdin -o md.mdout -c ../min/min.rst -r md.rst -x md.mdcrd -inf md.mdinfo -p ../common/start.prmtop%(ref_flag)s
+%(exe)s -O -i md.mdin -o md.mdout -c %(rstfile)s -r md.rst -x md.mdcrd -inf md.mdinfo -p ../common/start.prmtop
 cd ..\n"""%locals()
 
-if args.step != ['prep']:
-    with open(args.script_name, 'w') as ff:
+if step != ['prep']:
+    with open(script_name, 'w') as ff:
         ff.write(script)
