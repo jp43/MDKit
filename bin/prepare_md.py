@@ -49,6 +49,12 @@ parser.add_argument('-addions',
     default=0.0,
     help="Add specific concentration of ions (Na+, Cl-) and neutralize the system")
 
+parser.add_argument('-amd',
+    dest='amd',
+    type=str,
+    default=None,
+    help="aMD options (default: aMD disabled)")
+
 parser.add_argument('-box',
     dest='box',
     type=str,
@@ -76,7 +82,7 @@ parser.add_argument('-efn',
     dest='efn',
     default=0,
     type=int,
-    help="Normalize electic field by box length in Z direction (Voltage in kcal/(mol*e))")
+    help="Normalize electic field by box length in Z direction (voltage in kcal/(mol*e))")
 
 parser.add_argument('-efz',
     dest='efz',
@@ -109,6 +115,7 @@ parser.add_argument('-iwrap',
 parser.add_argument('-membrane',
     dest='membrane',
     action='store_true',
+    default=False,
     help="Prepare simulation of membrane protein in lipids. Protein structure is assumed to be provided using CHARMM membrane builder (PDB output file from step 5).")
 
 parser.add_argument('-namd',
@@ -193,6 +200,11 @@ parser.add_argument('-rst',
     required=False,
     help=".rst file used when restarting MD (works only when -st md)")
 
+parser.add_argument('-rsttop',
+    dest='rsttop',
+    required=False,
+    help=".prmtop file used when restarting MD (works only when -st md)")
+
 parser.add_argument('-s',
     dest='script_name',
     required=False,
@@ -253,17 +265,46 @@ amber_version = utils.check_amber_version()
 if not amber_version in ['16', '17'] and efz is not None:
     sys.exit('Electric field option only supported for Amber 16 or 17')
 elif efz:
-    ef_lines = "\nefz=%s"%efz
+    ef_lines = "\nefz=%s,"%efz
     if efn == 1:
-        ef_lines += ", efn=1"
+        ef_lines += " efn=1,"
 else:
     ef_lines = "" 
+
+# set aMD options
+if amd is not None:
+    options_amd = amd.split(',')
+    noptions_amd = len(options_amd)/2
+
+    if len(options_amd) != 2*noptions_amd:
+        raise IOError('Number of options provided for amd should be even!')
+    if 'alphap' in options_amd and 'alphad' in options_amd:
+        iamd = 3
+    elif 'alphad' in options_amd:
+        iamd = 2
+    elif 'alphap' in options_amd:
+        iamd = 1
+    else:
+        sys.exit("Option alphad or alphap should be provided with -amd flag")
+
+    amd_lines = "\niamd=%i,"%iamd
+    for idx in range(noptions_amd):
+        key = str(options_amd[2*idx])
+        value = str(options_amd[2*idx+1])
+        if idx%2 == 0:
+            amd_lines += "\n"
+        else:
+            amd_lines += " "
+        amd_lines += "%s=%s,"%(key,value)
+else: 
+    amd_lines = ""
 
 if rstfile is not None and step != ['md']:
     sys.exit("rst flag can only be used with -st md")
 elif step == ['md']:
-    if not os.path.isfile(rstfile):
-        sys.exit("No rst file found: %s"%rstfile)
+    pass
+    #if not os.path.isfile(rstfile):
+    #    sys.exit("No rst file found: %s"%rstfile)
 
 # save current directory
 pwd = os.getcwd()
@@ -314,13 +355,13 @@ version=amber_version, skip_unrecognized_atoms=hem)
         mol2files_l = None
 
     # should solvate??
-    if solvent == 'explicit' and membrane is None:
+    if solvent == 'explicit' and not membrane:
         solvate = True
     else:
         solvate = False
 
     # get pdbradii
-    if pbradii is not None:
+    if pbradii:
         PBRadii = known_pbradii[igb]
     else:
         PBRadii = None
@@ -440,7 +481,6 @@ if 'nvt' in step and solvent == 'explicit':
 
     if membrane:
         # source: http://ambermd.org/tutorials/advanced/tutorial16
-        lipid_mask = ambertools.get_lipid_mask(workdir_abspath+'/common/start.pdb')
         with open(workdir_curr+'/nvt1.mdin', 'w') as nvtf:
             nvtf.write("""Heating in NVT ensemble
 &cntrl
@@ -448,13 +488,17 @@ nstlim=2500,
 dt=0.002,
 ntpr=1000,
 ig=-1,
-tempi=0.0, temp0=100.0,
 ntt=3, gamma_ln=1.0, 
 ntp=0, ntb=1,
 cut=%(cut)s,
 ntc=2, ntf=2
 ntr=1,restraint_wt=10.0,
-restraintmask='%(lipid_mask)s&!@H='
+nmropt=1,
+restraintmask='!%(solvent_mask)s&!@H='
+/
+&wt type='TEMP0', istep1=0, istep2=2500, value1=0.0, value2=100.0
+/
+&wt type='END'
 /\n"""%locals())
 
         with open(workdir_curr+'/nvt2.mdin', 'w') as nvtf:
@@ -464,7 +508,6 @@ nstlim=%(nstlim_nvt)s,
 dt=0.002,
 ntpr=1000,
 ig=-1,
-tempi=100.0, temp0=%(temp)s,
 ntt=3, gamma_ln=1.0, 
 ntb=2, ntp=2,
 pres0=1.0, taup=2.0,
@@ -472,7 +515,12 @@ cut=%(cut)s,
 irest=1, ntx=5,
 ntc=2, ntf=2
 ntr=1,restraint_wt=10.0,
-restraintmask='%(lipid_mask)s&!@H='
+nmropt=1,
+restraintmask='!%(solvent_mask)s&!@H='
+/
+&wt type='TEMP0', istep1=0, istep2=%(nstlim_nvt)s, value1=100.0, value2=%(temp)s
+/
+&wt type='END'
 /\n"""%locals())
 
         script += """\ncd nvt
@@ -491,11 +539,16 @@ nstlim=%(nstlim_nvt)s,
 dt=0.002,
 ntpr=1000,
 ig=-1,
-tempi=0.0, temp0=%(temp)s,
 ntt=1, tautp=2.0, 
 ntp=0, ntb=1,
 cut=%(cut)s,
 ntc=2, ntf=2
+nmropt=1,
+restraintmask='!%(solvent_mask)s&!@H='
+/
+&wt type='TEMP0', istep1=0, istep2=%(nstlim_nvt)s, value1=0.0, value2=%(temp)s
+/
+&wt type='END'
 /\n"""%locals())
 
         script += """\ncd nvt
@@ -597,8 +650,19 @@ if 'md' in step:
         shutil.rmtree(workdir_curr, ignore_errors=True)
         os.makedirs(workdir_curr)
 
-        startpdb = workdir_rst + '/common/start.pdb'
-        prmtop = os.path.relpath(workdir_rst+'/common/start.prmtop', workdir_curr)
+        if rsttop is None:
+            startpdb = workdir_rst + '/common/start.pdb'
+            prmtop = workdir_rst+'/common/start.prmtop'
+        else:
+            topdir = os.path.relpath(os.path.dirname(rsttop))
+            topdir_s = topdir.split('/')
+            if len(topdir_s) > 1:
+                topdir_rst = '/'.join(topdir_s[:-1])
+            else:
+                topdir_rst = '.'
+            startpdb = topdir_rst + '/common/start.pdb'
+            prmtop = topdir_rst + '/common/start.prmtop'
+        prmtop = os.path.relpath(prmtop, workdir_curr)
 
     if solvent == 'explicit':
         # get ntwprt string from option value
@@ -635,7 +699,7 @@ cut=%(cut)s,
 irest=1, ntx=5,
 iwrap=%(iwrap)s,
 ntc=2, ntf=2,
-ntpr=%(ntpr)s, ntwr=%(ntpr)s, ntwx=%(ntwx)s,%(ntwprt_str)s%(ef_lines)s
+ntpr=%(ntpr)s, ntwr=%(ntpr)s, ntwx=%(ntwx)s,%(ntwprt_str)s%(ef_lines)s%(amd_lines)s
 /\n"""%locals())
 
             script += """\ncd %(mddir)s
@@ -660,7 +724,7 @@ cut=%(cut)s,
 irest=1, ntx=5,
 iwrap=%(iwrap)s,
 ntc=2, ntf=2,
-ntpr=%(ntpr)s, ntwr=%(ntpr)s, ntwx=%(ntwx)s,%(ntwprt_str)s%(ef_lines)s
+ntpr=%(ntpr)s, ntwr=%(ntpr)s, ntwx=%(ntwx)s,%(ntwprt_str)s%(ef_lines)s%(amd_lines)s
 /\n"""%locals())
 
             script += """\ncd %(mddir)s
