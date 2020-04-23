@@ -53,7 +53,7 @@ parser.add_argument('-amd',
     dest='amd',
     type=str,
     default=None,
-    help="aMD options (default: aMD disabled)")
+    help="Accelerated MD options (default: accelerated MD disabled)")
 
 parser.add_argument('-box',
     dest='box',
@@ -195,6 +195,12 @@ parser.add_argument('-pbradii',
     default=False,
     help="Set PBRadii option consistent with igb value.")
 
+parser.add_argument('-ref',
+    dest='reference',
+    type=str,
+    default=None,
+    help="Specify reference structure (for targeted MD...)")
+
 parser.add_argument('-rst',
     dest='rstfile',
     required=False,
@@ -228,6 +234,17 @@ parser.add_argument('-temp',
     dest='temp',
     default=298.0,
     help="temperature (default: 298.0K)")
+
+parser.add_argument('-tgtmd',
+    dest='tgtmd',
+    default=None,
+    help="Options for targeted MD")
+
+parser.add_argument('-tgtmd',
+    dest='tgtmd',
+    type=str,
+    default=None,
+    help="Targeted MD options (default: targeted MD disabled)")
 
 parser.add_argument('-w',
     dest='workdir',
@@ -271,42 +288,18 @@ elif efz:
 else:
     ef_lines = "" 
 
-# set aMD options
-if amd is not None:
-    options_amd = amd.split(',')
-    noptions_amd = len(options_amd)/2
+## get accelerated MD lines
+amd_lines = utils.extract_enhanced_sampling_lines(amd, "amd")
 
-    if len(options_amd) != 2*noptions_amd:
-        raise IOError('Number of options provided for amd should be even!')
-    if 'alphap' in options_amd and 'alphad' in options_amd:
-        iamd = 3
-    elif 'alphad' in options_amd:
-        iamd = 2
-    elif 'alphap' in options_amd:
-        iamd = 1
-    else:
-        sys.exit("Option alphad or alphap should be provided with -amd flag")
-
-    amd_lines = "\niamd=%i,"%iamd
-    for idx in range(noptions_amd):
-        key = str(options_amd[2*idx])
-        value = str(options_amd[2*idx+1])
-        if idx%2 == 0:
-            amd_lines += "\n"
-        else:
-            amd_lines += " "
-        amd_lines += "%s=%s,"%(key,value)
-else: 
-    amd_lines = ""
+## get targeted MD lines
+tgtmd_lines = utils.extract_enhanced_sampling_lines(tgtmd, "tgtmd")
 
 if rstfile is not None and step != ['md']:
     sys.exit("rst flag can only be used with -st md")
 elif step == ['md']:
     pass
-    #if not os.path.isfile(rstfile):
-    #    sys.exit("No rst file found: %s"%rstfile)
 
-# save current directory
+## save current directory
 pwd = os.getcwd()
 
 if file_r is not None:
@@ -350,7 +343,7 @@ if 'prep' in step:
             files_l_new.append(filename_new)
 
         mol2files_l = ambertools.prepare_ligand('protein.pdb', files_l_new, 'complex.pdb', charge_method=charge_method, \
-version=amber_version, skip_unrecognized_atoms=hem)
+        version=amber_version, skip_unrecognized_atoms=hem)
     else:
         mol2files_l = None
 
@@ -367,13 +360,13 @@ version=amber_version, skip_unrecognized_atoms=hem)
         PBRadii = None
 
     ambertools.prepare_leap_config_file('leap.in', 'protein.pdb', mol2files_l, 'complex.pdb', solvate=solvate, \
-box=box, distance=boxsize, model=water, version=amber_version, PBRadii=PBRadii, membrane=membrane)
+    box=box, distance=boxsize, model=water, version=amber_version, PBRadii=PBRadii, membrane=membrane)
     utils.run_shell_command('tleap -f leap.in')
 
     if addions != 0.0 and solvate:
         nna, ncl = ambertools.get_ions_number('leap.log', concentration=addions, version=amber_version)
         ambertools.prepare_leap_config_file('leap.in', 'protein.pdb', mol2files_l, 'complex.pdb', solvate=solvate, \
-box=box, distance=boxsize, nna=nna, ncl=ncl, model=water, version=amber_version, PBRadii=PBRadii)
+        box=box, distance=boxsize, nna=nna, ncl=ncl, model=water, version=amber_version, PBRadii=PBRadii)
         utils.run_shell_command('tleap -f leap.in')
 
     if namd:
@@ -553,7 +546,7 @@ restraintmask='!%(solvent_mask)s&!@H='
 
         script += """\ncd nvt
 # run heating
-%(exe)s -O -i nvt.mdin -o nvt.mdout -c ../min/min2.rst -r nvt.rst -x nvt.mdcrd -inf nvt.mdinfo -p ../common/start.prmtop
+%(exe)s -O -i nvt.mdin -o nvt.mdout -c ../min/min2.rst -r nvt.rst -x nvt.mdcrd -inf nvt.mdinfo -p ../common/start.prmtop -ref ../min/min2.rst
 cd ..\n"""%locals()
 
 # ------- STEP 4: equilibration -------
