@@ -553,7 +553,7 @@ restraintmask='!%(solvent_mask)s&!@H='
 
         script += """\ncd nvt
 # run heating
-%(exe)s -O -i nvt.mdin -o nvt.mdout -c ../min/min2.rst -r nvt.rst -x nvt.mdcrd -inf nvt.mdinfo -p ../common/start.prmtop
+%(exe)s -O -i nvt.mdin -o nvt.mdout -c ../min/min2.rst -r nvt.rst -x nvt.mdcrd -inf nvt.mdinfo -p ../common/start.prmtop -ref ../min/min2.rst
 cd ..\n"""%locals()
 
 # ------- STEP 4: equilibration -------
