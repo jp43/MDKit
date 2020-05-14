@@ -106,6 +106,12 @@ parser.add_argument('-igb',
     default=5,
     help="GBSA index (used with implicit solvent, default: 5)")
 
+parser.add_argument('-irest',
+    dest='irest',
+    type=int,
+    default=1,
+    help="Production: irest (default: 1)")
+
 parser.add_argument('-iwrap',
     dest='iwrap',
     type=int,
@@ -151,18 +157,18 @@ parser.add_argument('-ncyc',
 
 parser.add_argument('-nstlim_nvt',
     dest='nstlim_nvt',
-    default=10000,
-    help="NVT: nstlim (default: 10000)")
+    default=250000,
+    help="NVT: nstlim (default: 250000)")
 
 parser.add_argument('-nstlim_npt',
     dest='nstlim_npt',
-    default=20000,
-    help="NPT: nstlim (default: 20000)")
+    default=250000,
+    help="NPT: nstlim (default: 250000)")
 
 parser.add_argument('-nstlim',
     dest='nstlim',
-    default=100000,
-    help="Production: nstlim (default: 100000)")
+    default=500000,
+    help="Production: nstlim (default: 500000)")
 
 parser.add_argument('-ntpr',
     dest='ntpr',
@@ -183,6 +189,12 @@ parser.add_argument('-ntwx',
     default=0,
     help="Production: ntwx (default: 0)")
 
+parser.add_argument('-nwaters',
+    dest='nwaters',
+    type=int,
+    default=None,
+    help="Number of waters (to be used with targeted MD)")
+
 parser.add_argument('-p',
     dest='partition',
     type=str,
@@ -196,10 +208,10 @@ parser.add_argument('-pbradii',
     help="Set PBRadii option consistent with igb value.")
 
 parser.add_argument('-ref',
-    dest='reference',
+    dest='reffile',
     type=str,
     default=None,
-    help="Specify reference structure (for targeted MD...)")
+    help="Specify reference structure (to be used with targeted MD)")
 
 parser.add_argument('-rst',
     dest='rstfile',
@@ -234,11 +246,6 @@ parser.add_argument('-temp',
     dest='temp',
     default=298.0,
     help="temperature (default: 298.0K)")
-
-parser.add_argument('-tgtmd',
-    dest='tgtmd',
-    default=None,
-    help="Options for targeted MD")
 
 parser.add_argument('-tgtmd',
     dest='tgtmd',
@@ -289,10 +296,10 @@ else:
     ef_lines = "" 
 
 ## get accelerated MD lines
-amd_lines = utils.extract_enhanced_sampling_lines(amd, "amd")
+amd_lines = utils.extract_amd_lines(amd)
 
 ## get targeted MD lines
-tgtmd_lines = utils.extract_enhanced_sampling_lines(tgtmd, "tgtmd")
+tgtmd_lines = utils.extract_tgtmd_lines(tgtmd)
 
 if rstfile is not None and step != ['md']:
     sys.exit("rst flag can only be used with -st md")
@@ -305,7 +312,7 @@ pwd = os.getcwd()
 if file_r is not None:
     # get absolute paths of ligand and receptor files
     file_r_abspath = os.path.abspath(file_r)
-else:
+elif 'prep' in step:
     raise ValueError('Receptor file should be provided!')
 
 if files_l is not None:
@@ -359,9 +366,15 @@ if 'prep' in step:
     else:
         PBRadii = None
 
-    ambertools.prepare_leap_config_file('leap.in', 'protein.pdb', mol2files_l, 'complex.pdb', solvate=solvate, \
-    box=box, distance=boxsize, model=water, version=amber_version, PBRadii=PBRadii, membrane=membrane)
-    utils.run_shell_command('tleap -f leap.in')
+    if not nwaters or solvent in ['implicit', 'vacuo']:
+        ambertools.prepare_leap_config_file('leap.in', 'protein.pdb', mol2files_l, 'complex.pdb', solvate=solvate, \
+        box=box, distance=boxsize, model=water, version=amber_version, PBRadii=PBRadii, membrane=membrane)
+        utils.run_shell_command('tleap -f leap.in')
+    else:
+        removed_waters, dbest, cbest = ambertools.get_removed_waters('protein.pdb', mol2files_l, 'complex.pdb', nwaters, boxsize, step=0.01, ntries=5, version=amber_version)
+        ambertools.prepare_leap_config_file('leap.in', 'protein.pdb', mol2files_l, 'complex.pdb', solvate=solvate, \
+        box=box, distance=dbest, closeness=cbest, removed_waters=removed_waters, model=water, version=amber_version, PBRadii=PBRadii, membrane=membrane)
+        utils.run_shell_command('tleap -f leap.in')
 
     if addions != 0.0 and solvate:
         nna, ncl = ambertools.get_ions_number('leap.log', concentration=addions, version=amber_version)
@@ -432,9 +445,6 @@ cut=%(cut)s,
 
 # minimization (full structure)
 %(exe)s -O -i min2.in -p ../common/start.prmtop -c min1.rst -o min2.out -r min2.rst
-
-# convert final structure to PDB
-%(cpptrajexe)s -p ../common/start.prmtop -y min2.rst -x min2.pdb
 cd ..\n"""%locals()
 
     elif solvent in ['vacuo', 'implicit']:
@@ -519,7 +529,6 @@ restraintmask='!%(solvent_mask)s&!@H='
         script += """\ncd nvt
 # run heating 1
 %(exe)s -O -i nvt1.mdin -o nvt1.mdout -c ../min/min2.rst -r nvt1.rst -x nvt1.mdcrd -inf nvt1.mdinfo -p ../common/start.prmtop -ref ../min/min2.rst
-
 # run heating 2
 %(exe)s -O -i nvt2.mdin -o nvt2.mdout -c nvt1.rst -r nvt2.rst -x nvt2.mdcrd -inf nvt2.mdinfo -p ../common/start.prmtop -ref nvt1.rst
 cd ..\n"""%locals()
@@ -602,6 +611,9 @@ cut=%(cut)s,
 irest=1, ntx=5,
 ntc=2, ntf=2,
 ntpr=500
+/
+&ewald
+skinnb=5, ! Increase skinnb to avoid skinnb errors
 /\n"""%locals())
 
         script += """\ncd npt
@@ -622,7 +634,9 @@ if 'md' in step:
         startpdb = workdir_abspath + '/common/start.pdb'
         prmtop = os.path.relpath(workdir_abspath+'/common/start.prmtop', workdir_curr) 
     else:
-        rstdir = os.path.relpath(os.path.dirname(rstfile))
+        rstdir = os.path.dirname(rstfile)
+        if rstdir:
+            rstdir = os.path.relpath(os.path.dirname(rstfile))
         rstdir_s = rstdir.split('/')
         if len(rstdir_s) > 1:
             workdir_rst = '/'.join(rstdir_s[:-1])
@@ -657,6 +671,11 @@ if 'md' in step:
             prmtop = topdir_rst + '/common/start.prmtop'
         prmtop = os.path.relpath(prmtop, workdir_curr)
 
+    if reffile is None:
+        ref_flag = ""
+    else:
+        ref_flag = ' -ref %s'%(os.path.relpath(reffile, workdir_curr))
+
     if solvent == 'explicit':
         # get ntwprt string from option value
         if ntwprt == 0:
@@ -672,6 +691,11 @@ if 'md' in step:
             barostat = "\nntp=1, ntb=2,\npres0=1.0, taup=2.0,"
         else:
             barostat = "\nntp=0, ntb=1,"
+
+        if irest == 0:
+            rstline = "irest=0, ntx=1, tempi=0.0,"
+        else:
+            rstline = "irest=1, ntx=5"
 
         if membrane:
             if rstfile is not None:
@@ -689,15 +713,15 @@ ig=-1,
 temp0=%(temp)s,
 ntt=3, gamma_ln=1.0,%(barostat)s
 cut=%(cut)s,
-irest=1, ntx=5,
+%(rstline)s,
 iwrap=%(iwrap)s,
 ntc=2, ntf=2,
-ntpr=%(ntpr)s, ntwr=%(ntpr)s, ntwx=%(ntwx)s,%(ntwprt_str)s%(ef_lines)s%(amd_lines)s
+ntpr=%(ntpr)s, ntwr=%(ntpr)s, ntwx=%(ntwx)s,%(ntwprt_str)s%(ef_lines)s%(amd_lines)s%(tgtmd_lines)s
 /\n"""%locals())
 
             script += """\ncd %(mddir)s
 # run equilibration
-%(exe)s -O -i md.mdin -o md.mdout -c %(rstfile)s -r md.rst -x md.mdcrd -inf md.mdinfo -p %(prmtop)s
+%(exe)s -O -i md.mdin -o md.mdout -c %(rstfile)s -r md.rst -x md.mdcrd -inf md.mdinfo -p %(prmtop)s%(ref_flag)s
 cd ..\n"""%locals()
 
         else:
@@ -714,15 +738,15 @@ ig=-1,
 temp0=%(temp)s,
 ntt=3, gamma_ln=1.0,%(barostat)s
 cut=%(cut)s,
-irest=1, ntx=5,
+%(rstline)s,
 iwrap=%(iwrap)s,
 ntc=2, ntf=2,
-ntpr=%(ntpr)s, ntwr=%(ntpr)s, ntwx=%(ntwx)s,%(ntwprt_str)s%(ef_lines)s%(amd_lines)s
+ntpr=%(ntpr)s, ntwr=%(ntpr)s, ntwx=%(ntwx)s,%(ntwprt_str)s%(ef_lines)s%(amd_lines)s%(tgtmd_lines)s
 /\n"""%locals())
 
             script += """\ncd %(mddir)s
 # production run
-%(exe)s -O -i md.mdin -o md.mdout -c %(rstfile)s -r md.rst -x md.mdcrd -inf md.mdinfo -p %(prmtop)s
+%(exe)s -O -i md.mdin -o md.mdout -c %(rstfile)s -r md.rst -x md.mdcrd -inf md.mdinfo -p %(prmtop)s%(ref_flag)s
 cd ..\n"""%locals()
 
     else: # implicit solvent
@@ -752,7 +776,7 @@ ntpr=%(ntpr)s, ntwr=%(ntpr)s, ntwx=%(ntwx)s
 
         script += """\ncd %(mddir)s
 # production run
-%(exe)s -O -i md.mdin -o md.mdout -c %(rstfile)s -r md.rst -x md.mdcrd -inf md.mdinfo -p ../common/start.prmtop
+%(exe)s -O -i md.mdin -o md.mdout -c %(rstfile)s -r md.rst -x md.mdcrd -inf md.mdinfo -p ../common/start.prmtop%(ref_flag)s
 cd ..\n"""%locals()
 
 if step != ['prep']:

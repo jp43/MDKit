@@ -51,28 +51,23 @@ def get_box_dimensions(pdbfile, mask=[]):
     dist = np.amax(coords, axis=0) - np.amin(coords, axis=0)
     return dist
 
-def extract_enhanced_sampling_lines(args, method):
+def extract_amd_lines(parsed_string):
     """Set options for enhanced sampling methods"""
-    if args is not None:
-        options = args.split(',')
+    if parsed_string is not None:
+        options = parsed_string.split(',')
         noptions = len(options)/2
  
         if len(options) != 2*noptions:
-            raise IOError('Number of options provided for %s should be even!'%method)
-        if method == "amd":
-            if 'alphap' in options and 'alphad' in options:
-                iamd = 3
-            elif 'alphad' in options:
-                iamd = 2
-            elif 'alphap' in options:
-                iamd = 1
-            else:
-                sys.exit("Option alphad or alphap should be provided with -amd flag")
-            lines = "\niamd=%i"%iamd
-        elif method == "tgtmd":
-            lines = '\nitgtmd=1'
+            raise IOError('Number of options provided for aMD should be even!')
+        if 'alphap' in options and 'alphad' in options:
+            iamd = 3
+        elif 'alphad' in options:
+            iamd = 2
+        elif 'alphap' in options:
+            iamd = 1
         else:
-            return ""
+            sys.exit("Option alphad or alphap should be provided with -amd flag")
+        lines = "\niamd=%i"%iamd
 
         for idx in range(noptions):
             key = str(options[2*idx])
@@ -81,8 +76,38 @@ def extract_enhanced_sampling_lines(args, method):
                 lines += "\n"
             else:
                 lines += ", "
-            if key in ['tgtrmsmask', 'tgtfitmask']:
-                    value = '\'' + value + '\''
             lines += "%s=%s"%(key, value)
+        return lines
     else:
         return ""
+
+def extract_tgtmd_lines(parsed_string):
+
+    if parsed_string is None:
+        return ""
+
+    args_tgtmd = {}
+    tgtmd_options = ['tgtmdfrc', 'tgtrmsmask', 'tgtfitmask', 'tgtrmsd']
+
+    key = ""; value = ""
+    for item in parsed_string.split(","):
+        if item in tgtmd_options:
+            if key and value:
+                args_tgtmd[key] = value
+                value = ""
+            key = item
+        elif key and not value:
+            value = item
+        elif key and value:
+            value += ',' + item
+    if key and value:
+        args_tgtmd[key] = value
+
+    tgtmd_lines = ''
+    if args_tgtmd:
+        tgtmd_lines = "\nitgtmd=1"
+        for key, value in args_tgtmd.iteritems():
+            if key in ['tgtrmsmask', 'tgtfitmask']:
+                value = '\'' + value + '\''
+            tgtmd_lines += ", %s=%s"%(key, value)
+    return tgtmd_lines
