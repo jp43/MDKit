@@ -213,6 +213,12 @@ parser.add_argument('-ref',
     default=None,
     help="Specify reference structure (to be used with targeted MD)")
 
+parser.add_argument('-res',
+    dest='resfile',
+    type=str,
+    default=None,
+    help="Specify restraint file")
+
 parser.add_argument('-rst',
     dest='rstfile',
     required=False,
@@ -390,6 +396,11 @@ if 'prep' in step:
     os.chdir(pwd)
 
 script = """#!/bin/bash
+#$ -N md_298K_IDP
+#$ -q r730gpuRTX2080ti
+#$ -S /bin/bash
+#$ -V 
+#$ -cwd 
 set -e
 \n"""%locals()
 
@@ -671,10 +682,12 @@ if 'md' in step:
             prmtop = topdir_rst + '/common/start.prmtop'
         prmtop = os.path.relpath(prmtop, workdir_curr)
 
-    if reffile is None:
-        ref_flag = ""
-    else:
+    if resfile is not None:
+        ref_flag = ' -ref %s'%(os.path.relpath(resfile, workdir_curr))
+    elif reffile is not None:
         ref_flag = ' -ref %s'%(os.path.relpath(reffile, workdir_curr))
+    else:
+        ref_flag = ""
 
     if solvent == 'explicit':
         # get ntwprt string from option value
@@ -697,6 +710,11 @@ if 'md' in step:
         else:
             rstline = "irest=1, ntx=5"
 
+        if resfile is not None:
+            resline = "\nntr=1, restraint_wt=10.0,\nrestraintmask='!:842-13396&!@H='"
+        else:
+            resline = ""
+
         if membrane:
             if rstfile is not None:
                 rstfile = os.path.relpath(rstfile, workdir_curr)
@@ -716,7 +734,7 @@ cut=%(cut)s,
 %(rstline)s,
 iwrap=%(iwrap)s,
 ntc=2, ntf=2,
-ntpr=%(ntpr)s, ntwr=%(ntpr)s, ntwx=%(ntwx)s,%(ntwprt_str)s%(ef_lines)s%(amd_lines)s%(tgtmd_lines)s
+ntpr=%(ntpr)s, ntwr=%(ntpr)s, ntwx=%(ntwx)s,%(ntwprt_str)s%(ef_lines)s%(amd_lines)s%(tgtmd_lines)s%(resline)s
 /\n"""%locals())
 
             script += """\ncd %(mddir)s
