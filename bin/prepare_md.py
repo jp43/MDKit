@@ -395,14 +395,17 @@ if 'prep' in step:
         namdtools.create_constrained_pdbfile('namd_equil_res.pdb', 'start.pdb', ligname)
     os.chdir(pwd)
 
+#script = """#!/bin/bash
+##$ -N md
+##$ -q r730gpuRTX2080ti
+##$ -S /bin/bash
+##$ -V 
+##$ -cwd 
+#set -e
+#\n"""%locals()
+
 script = """#!/bin/bash
-#$ -N md_298K_IDP
-#$ -q r730gpuRTX2080ti
-#$ -S /bin/bash
-#$ -V 
-#$ -cwd 
-set -e
-\n"""%locals()
+set -e\n"""
 
 if partition == 'gpu':
     exe = 'pmemd.cuda'
@@ -415,7 +418,7 @@ else:
     else:
         raise ValueError('Number of CPUS (-np) should be greater or equal to 1')
     cpptrajexe = 'cpptraj'
-script += "cd %s\n"""%os.path.relpath(workdir_abspath)
+#script += "cd %s\n"""%os.path.relpath(workdir_abspath)
 
 # ------- STEP 2: minimization -------
 if 'min' in step:
@@ -556,6 +559,7 @@ ntt=1, tautp=2.0,
 ntp=0, ntb=1,
 cut=%(cut)s,
 ntc=2, ntf=2
+ntr=1,restraint_wt=10.0,
 nmropt=1,
 restraintmask='!%(solvent_mask)s&!@H='
 /
@@ -706,7 +710,8 @@ if 'md' in step:
             barostat = "\nntp=0, ntb=1,"
 
         if irest == 0:
-            rstline = "irest=0, ntx=1, tempi=0.0,"
+            rstline = "irest=0, ntx=1"
+            #rstline = "irest=0, ntx=1, tempi=0.0,"
         else:
             rstline = "irest=1, ntx=5"
 

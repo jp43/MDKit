@@ -162,7 +162,7 @@ def get_solvent_mask(pdbfile, residues='WAT'):
 def get_lipid_mask(pdbfile):
     return get_solvent_mask(pdbfile, 'CHL,LA,MY,OL,PA,PC,PE')
 
-def get_ions_number(logfile, concentration=0.15, version='14'):
+def get_ions_number(logfile, concentration=0.15, version='14', replace=False):
 
     # Nions = Cions * Nwater * 1/55.5 where 55.5 M is the concentration of pure water
     with open(logfile, 'r') as lf:
@@ -179,7 +179,10 @@ def get_ions_number(logfile, concentration=0.15, version='14'):
             else:
                 sys.exit("get_ions_number only working with version 14 or 16 of Amber")
 
-    ncl = int(round(nwaters * concentration / 55.5))
+    if replace:
+        ncl = int(round(nwaters * concentration / 55.5/(1+2*concentration/55.5)))
+    else:
+        ncl = int(round(nwaters * concentration / 55.5))
     nna = int(ncl)
 
     with open(logfile, 'r') as lf:
@@ -191,6 +194,7 @@ def get_ions_number(logfile, concentration=0.15, version='14'):
                     ncl += abs(net_charge)
                 elif net_charge < 0:
                     nna += abs(net_charge)
+
     return nna, ncl
 
 def load_PROTON_INFO():
