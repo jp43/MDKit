@@ -154,13 +154,15 @@ def get_solvent_mask(pdbfile, residues='WAT'):
                     if not resnum:
                         resnum_in = line[22:27].strip()
                     resnum = line[22:27].strip()
+                if resnum and resname not in solvent_residues:
+                    raise IOError("Non solvent atom detected after solvent, cannot properly build the solvent mask!")
 
     resnum_fin = resnum
     solvent_mask = ':%s-%s'%(resnum_in, resnum_fin)
     return solvent_mask
 
 def get_lipid_mask(pdbfile):
-    return get_solvent_mask(pdbfile, 'CHL,LA,MY,OL,PA,PC,PE')
+    return get_solvent_mask(pdbfile, residues='CHL,LA,MY,OL,PA,PC,PE')
 
 def get_ions_number(logfile, concentration=0.15, version='14', replace=False):
 

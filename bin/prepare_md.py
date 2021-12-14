@@ -28,6 +28,9 @@ known_steps = ['prep', 'min', 'nvt', 'npt', 'md']
 # born radii for each implicit solvation scheme
 known_pbradii = {1: 'mbondi', 2: 'mbondi2', 5: 'mbondi2', 7: 'bondi', 8: 'mbondi3'}
 
+# solvent residues (used to build up solvent mask)
+solvent_residues = 'WAT, Na+, K+, Cl-'
+
 parser = argparse.ArgumentParser(description="Prepare MD simulations with Amber")
 
 parser.add_argument('-r',
@@ -208,16 +211,16 @@ parser.add_argument('-pbradii',
     help="Set PBRadii option consistent with igb value.")
 
 parser.add_argument('-ref',
-    dest='reffile',
+    dest='reference_file',
     type=str,
     default=None,
     help="Specify reference structure (to be used with targeted MD)")
 
-parser.add_argument('-res',
-    dest='resfile',
+parser.add_argument('-restraintmask',
+    dest='restraint_mask',
     type=str,
     default=None,
-    help="Specify restraint file")
+    help="Specify restraint mask (used to restraint specific atoms)")
 
 parser.add_argument('-rst',
     dest='rstfile',
@@ -309,8 +312,6 @@ tgtmd_lines = utils.extract_tgtmd_lines(tgtmd)
 
 if rstfile is not None and step != ['md']:
     sys.exit("rst flag can only be used with -st md")
-elif step == ['md']:
-    pass
 
 ## save current directory
 pwd = os.getcwd()
@@ -418,7 +419,7 @@ else:
     else:
         raise ValueError('Number of CPUS (-np) should be greater or equal to 1')
     cpptrajexe = 'cpptraj'
-#script += "cd %s\n"""%os.path.relpath(workdir_abspath)
+script += "cd %s\n"""%os.path.relpath(workdir_abspath)
 
 # ------- STEP 2: minimization -------
 if 'min' in step:
@@ -427,7 +428,20 @@ if 'min' in step:
     os.mkdir(workdir_curr)
 
     if solvent == 'explicit':
-        solvent_mask = ambertools.get_solvent_mask(workdir_abspath+'/common/start.pdb', residues='WAT,Na+,K+,Cl-')
+        solvent_mask = ambertools.get_solvent_mask(workdir_abspath+'/common/start.pdb', residues=solvent_residues)
+        restraint_mask_mdin = '!%s&!@H='%solvent_mask
+        if restraint_mask:
+            restraint_mask_mdin = '(%s)|'%restraint_mask_mdin + restraint_mask
+            restraintlines = "\nntr=1, restraint_wt=10.0,\nrestraintmask='%s'"%restraint_mask
+        else:
+            restraintlines = ""
+
+        if reference_file is not None:
+            ref_flag = ' -ref %s'%(os.path.relpath(reffile, workdir_curr))
+        elif restraint_mask:
+            ref_flag = ' -ref min1.rst'
+        else:
+            ref_flag = ""
 
         with open(workdir_curr+'/min1.in', 'w') as min1f:
             min1f.write("""Minimization 1 solvent + ions
@@ -439,7 +453,7 @@ ntpr=100,
 ntp=0, ntb=1,
 cut=%(cut)s,
 ntr=1,restraint_wt=10.0,
-restraintmask='!%(solvent_mask)s&!@H='
+restraintmask='%(restraint_mask_mdin)s'
 /\n"""%locals())
 
         with open(workdir_curr+'/min2.in', 'w') as min2f:
@@ -450,7 +464,7 @@ maxcyc=%(maxcyc)s,
 ncyc=%(ncyc)s,
 ntpr=100,
 ntp=0, ntb=1,
-cut=%(cut)s,
+cut=%(cut)s,%(restraintlines)s
 /\n"""%locals())
 
         script += """\ncd min
@@ -458,7 +472,7 @@ cut=%(cut)s,
 %(exe)s -O -i min1.in -p ../common/start.prmtop -c ../common/start.inpcrd -o min1.out -r min1.rst -ref ../common/start.inpcrd
 
 # minimization (full structure)
-%(exe)s -O -i min2.in -p ../common/start.prmtop -c min1.rst -o min2.out -r min2.rst
+%(exe)s -O -i min2.in -p ../common/start.prmtop -c min1.rst -o min2.out -r min2.rst%(ref_flag)s
 cd ..\n"""%locals()
 
     elif solvent in ['vacuo', 'implicit']:
@@ -488,13 +502,17 @@ cut=%(cut)s,
 %(cpptrajexe)s -p ../common/start.prmtop -y min.rst -x min.pdb
 cd ..\n"""%locals()
 
-
 # ------- STEP 3: heating -------
 if 'nvt' in step and solvent == 'explicit':
     workdir_curr = workdir_abspath + '/nvt'
 
     shutil.rmtree(workdir_curr, ignore_errors=True)
     os.mkdir(workdir_curr)
+
+    solvent_mask = ambertools.get_solvent_mask(workdir_abspath+'/common/start.pdb', residues=solvent_residues)
+    restraint_mask_mdin = '!%s&!@H='%solvent_mask
+    if restraint_mask:
+        restraint_mask_mdin = '(%s)|'%restraint_mask_mdin + restraint_mask
 
     if membrane:
         # source: http://ambermd.org/tutorials/advanced/tutorial16
@@ -511,7 +529,7 @@ cut=%(cut)s,
 ntc=2, ntf=2
 ntr=1,restraint_wt=10.0,
 nmropt=1,
-restraintmask='!%(solvent_mask)s&!@H='
+restraintmask='%(restraint_mask_mdin)s'
 /
 &wt type='TEMP0', istep1=0, istep2=2500, value1=0.0, value2=100.0
 /
@@ -533,7 +551,7 @@ irest=1, ntx=5,
 ntc=2, ntf=2
 ntr=1,restraint_wt=10.0,
 nmropt=1,
-restraintmask='!%(solvent_mask)s&!@H='
+restraintmask='%(restraint_mask_mdin)s'
 /
 &wt type='TEMP0', istep1=0, istep2=%(nstlim_nvt)s, value1=100.0, value2=%(temp)s
 /
@@ -561,7 +579,7 @@ cut=%(cut)s,
 ntc=2, ntf=2
 ntr=1,restraint_wt=10.0,
 nmropt=1,
-restraintmask='!%(solvent_mask)s&!@H='
+restraintmask='%(restraint_mask_mdin)s'
 /
 &wt type='TEMP0', istep1=0, istep2=%(nstlim_nvt)s, value1=0.0, value2=%(temp)s
 /
@@ -580,7 +598,18 @@ if 'npt' in step and solvent == 'explicit':
     shutil.rmtree(workdir_curr, ignore_errors=True)
     os.mkdir(workdir_curr)
 
+    if restraint_mask:
+        restraintlines = "\nntr=1, restraint_wt=10.0,\nrestraintmask='%s'"%restraint_mask
+    else:
+        restraintlines = ""
+
     if membrane:
+        if reference_file is not None:
+            ref_flag = ' -ref %s'%(os.path.relpath(reffile, workdir_curr))
+        elif restraint_mask:
+            ref_flag = ' -ref ../nvt/nvt2.rst'
+        else:
+            ref_flag = ""
         # source: http://ambermd.org/tutorials/advanced/tutorial16
         with open(workdir_curr+'/npt.mdin', 'w') as nptf:
             nptf.write("""Equilibration in NPT ensemble
@@ -595,23 +624,29 @@ pres0=1.0, taup=2.0,
 cut=%(cut)s,
 irest=1, ntx=5,
 ntc=2, ntf=2,
-ntpr=500
+ntpr=500,%(restraintlines)s
 /
 &ewald
-skinnb=5, ! Increase skinnb to avoid skinnb errors
+skinnb=5 ! Increase skinnb to avoid skinnb errors
 /\n"""%locals())
 
         script += "\ncd npt\n# run equilibration"
         for idx in range(10):
             if idx == 0:
                 script += """\n%s -O -i npt.mdin -o npt%i.mdout -c ../nvt/nvt2.rst -r npt%i.rst -x npt%i.mdcrd -inf npt%i.mdinfo \
--p ../common/start.prmtop"""%(exe,idx+1,idx+1,idx+1,idx+1)
+-p ../common/start.prmtop%s"""%(exe,idx+1,idx+1,idx+1,idx+1,ref_flag)
             else:
                 script += """\n%s -O -i npt.mdin -o npt%i.mdout -c npt%i.rst -r npt%i.rst -x npt%i.mdcrd -inf npt%i.mdinfo \
--p ../common/start.prmtop"""%(exe,idx+1,idx,idx+1,idx+1,idx+1)
+-p ../common/start.prmtop%s"""%(exe,idx+1,idx,idx+1,idx+1,idx+1,ref_flag)
         script += "\ncd ..\n"
 
     else:
+        if reference_file is not None:
+            ref_flag = ' -ref %s'%(os.path.relpath(reffile, workdir_curr))
+        elif restraint_mask:
+            ref_flag = ' -ref ../nvt/nvt.rst'
+        else:
+            ref_flag = ""
         with open(workdir_curr+'/npt.mdin', 'w') as nptf:
             nptf.write("""Equilibration in NPT ensemble
 &cntrl
@@ -625,15 +660,15 @@ pres0=1.0, taup=2.0,
 cut=%(cut)s,
 irest=1, ntx=5,
 ntc=2, ntf=2,
-ntpr=500
+ntpr=500,%(restraintlines)s
 /
 &ewald
-skinnb=5, ! Increase skinnb to avoid skinnb errors
+skinnb=5 ! Increase skinnb to avoid skinnb errors
 /\n"""%locals())
 
         script += """\ncd npt
 # run equilibration
-%(exe)s -O -i npt.mdin -o npt.mdout -c ../nvt/nvt.rst -r npt.rst -x npt.mdcrd -inf npt.mdinfo -p ../common/start.prmtop
+%(exe)s -O -i npt.mdin -o npt.mdout -c ../nvt/nvt.rst -r npt.rst -x npt.mdcrd -inf npt.mdinfo -p ../common/start.prmtop%(ref_flag)s
 cd ..\n"""%locals()
 
 
@@ -653,10 +688,12 @@ if 'md' in step:
         if rstdir:
             rstdir = os.path.relpath(os.path.dirname(rstfile))
         rstdir_s = rstdir.split('/')
+
         if len(rstdir_s) > 1:
             workdir_rst = '/'.join(rstdir_s[:-1])
         else:
             workdir_rst = '.'
+
         if workdir_rst == os.path.relpath(workdir_abspath):
             idx = 1
             mddir = 'md'
@@ -668,6 +705,7 @@ if 'md' in step:
                 idx += 1
         else:
             mddir = 'md'
+
         workdir_curr = workdir_abspath + '/' + mddir
         shutil.rmtree(workdir_curr, ignore_errors=True)
         os.makedirs(workdir_curr)
@@ -685,13 +723,6 @@ if 'md' in step:
             startpdb = topdir_rst + '/common/start.pdb'
             prmtop = topdir_rst + '/common/start.prmtop'
         prmtop = os.path.relpath(prmtop, workdir_curr)
-
-    if resfile is not None:
-        ref_flag = ' -ref %s'%(os.path.relpath(resfile, workdir_curr))
-    elif reffile is not None:
-        ref_flag = ' -ref %s'%(os.path.relpath(reffile, workdir_curr))
-    else:
-        ref_flag = ""
 
     if solvent == 'explicit':
         # get ntwprt string from option value
@@ -711,20 +742,26 @@ if 'md' in step:
 
         if irest == 0:
             rstline = "irest=0, ntx=1"
-            #rstline = "irest=0, ntx=1, tempi=0.0,"
         else:
             rstline = "irest=1, ntx=5"
 
-        if resfile is not None:
-            resline = "\nntr=1, restraint_wt=10.0,\nrestraintmask='!:842-13396&!@H='"
+        if restraint_mask:
+            restraintlines = "\nntr=1, restraint_wt=10.0,\nrestraintmask='%s'"%restraint_mask
         else:
-            resline = ""
+            restraintlines = ""
 
         if membrane:
             if rstfile is not None:
                 rstfile = os.path.relpath(rstfile, workdir_curr)
             else:
                 rstfile = "../npt/npt10.rst"
+
+            if reference_file is not None:
+                ref_flag = ' -ref %s'%(os.path.relpath(reffile, workdir_curr))
+            elif restraint_mask:
+                ref_flag = ' -ref ../npt/npt10.rst'
+            else:
+                ref_flag = ""
 
             # source: http://ambermd.org/tutorials/advanced/tutorial16
             with open(workdir_curr+'/md.mdin', 'w') as mdf:
@@ -739,7 +776,7 @@ cut=%(cut)s,
 %(rstline)s,
 iwrap=%(iwrap)s,
 ntc=2, ntf=2,
-ntpr=%(ntpr)s, ntwr=%(ntpr)s, ntwx=%(ntwx)s,%(ntwprt_str)s%(ef_lines)s%(amd_lines)s%(tgtmd_lines)s%(resline)s
+ntpr=%(ntpr)s, ntwr=%(ntpr)s, ntwx=%(ntwx)s,%(ntwprt_str)s%(ef_lines)s%(amd_lines)s%(tgtmd_lines)s%(restraintlines)s
 /\n"""%locals())
 
             script += """\ncd %(mddir)s
@@ -752,6 +789,14 @@ cd ..\n"""%locals()
                 rstfile = os.path.relpath(rstfile, workdir_curr)
             else:
                 rstfile = "../npt/npt.rst"
+
+            if reference_file is not None:
+                ref_flag = ' -ref %s'%(os.path.relpath(reffile, workdir_curr))
+            elif restraint_mask:
+                ref_flag = ' -ref ../npt/npt.rst'
+            else:
+                ref_flag = ""
+
             with open(workdir_curr+'/md.mdin', 'w') as mdf:
                 mdf.write("""MD production
 &cntrl
@@ -764,7 +809,7 @@ cut=%(cut)s,
 %(rstline)s,
 iwrap=%(iwrap)s,
 ntc=2, ntf=2,
-ntpr=%(ntpr)s, ntwr=%(ntpr)s, ntwx=%(ntwx)s,%(ntwprt_str)s%(ef_lines)s%(amd_lines)s%(tgtmd_lines)s
+ntpr=%(ntpr)s, ntwr=%(ntpr)s, ntwx=%(ntwx)s,%(ntwprt_str)s%(ef_lines)s%(amd_lines)s%(tgtmd_lines)s%(restraintlines)s
 /\n"""%locals())
 
             script += """\ncd %(mddir)s
