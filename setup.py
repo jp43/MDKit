@@ -7,7 +7,7 @@ def exit_with_error(head, body=''):
 
 # check Python version
 if not (sys.version_info[0] == 2 and sys.version_info[1] >= 6):
-    exit_with_error("You need Python 2.6.x or Python 2.7.x to install the DockBox package!")
+    exit_with_error("You need Python 2.6.x or Python 2.7.x to install the MDKit package!")
 
 setuptools.setup(name='mdkit',
     version="0.1.3",

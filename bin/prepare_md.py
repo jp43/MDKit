@@ -396,15 +396,6 @@ if 'prep' in step:
         namdtools.create_constrained_pdbfile('namd_equil_res.pdb', 'start.pdb', ligname)
     os.chdir(pwd)
 
-#script = """#!/bin/bash
-##$ -N md
-##$ -q r730gpuRTX2080ti
-##$ -S /bin/bash
-##$ -V 
-##$ -cwd 
-#set -e
-#\n"""%locals()
-
 script = """#!/bin/bash
 set -e\n"""
 
@@ -745,10 +736,10 @@ if 'md' in step:
         else:
             rstline = "irest=1, ntx=5"
 
-        if restraint_mask:
-            restraintlines = "\nntr=1, restraint_wt=10.0,\nrestraintmask='%s'"%restraint_mask
-        else:
-            restraintlines = ""
+        #if restraint_mask:
+        #    restraintlines = "\nntr=1, restraint_wt=10.0,\nrestraintmask='%s'"%restraint_mask
+        #else:
+        #    restraintlines = ""
 
         if membrane:
             if rstfile is not None:
@@ -758,8 +749,8 @@ if 'md' in step:
 
             if reference_file is not None:
                 ref_flag = ' -ref %s'%(os.path.relpath(reffile, workdir_curr))
-            elif restraint_mask:
-                ref_flag = ' -ref ../npt/npt10.rst'
+            #elif restraint_mask:
+            #    ref_flag = ' -ref ../npt/npt10.rst'
             else:
                 ref_flag = ""
 
@@ -776,7 +767,7 @@ cut=%(cut)s,
 %(rstline)s,
 iwrap=%(iwrap)s,
 ntc=2, ntf=2,
-ntpr=%(ntpr)s, ntwr=%(ntpr)s, ntwx=%(ntwx)s,%(ntwprt_str)s%(ef_lines)s%(amd_lines)s%(tgtmd_lines)s%(restraintlines)s
+ntpr=%(ntpr)s, ntwr=%(ntpr)s, ntwx=%(ntwx)s,%(ntwprt_str)s%(ef_lines)s%(amd_lines)s%(tgtmd_lines)s
 /\n"""%locals())
 
             script += """\ncd %(mddir)s
@@ -792,8 +783,8 @@ cd ..\n"""%locals()
 
             if reference_file is not None:
                 ref_flag = ' -ref %s'%(os.path.relpath(reffile, workdir_curr))
-            elif restraint_mask:
-                ref_flag = ' -ref ../npt/npt.rst'
+            #elif restraint_mask:
+            #    ref_flag = ' -ref ../npt/npt.rst'
             else:
                 ref_flag = ""
 
@@ -809,7 +800,7 @@ cut=%(cut)s,
 %(rstline)s,
 iwrap=%(iwrap)s,
 ntc=2, ntf=2,
-ntpr=%(ntpr)s, ntwr=%(ntpr)s, ntwx=%(ntwx)s,%(ntwprt_str)s%(ef_lines)s%(amd_lines)s%(tgtmd_lines)s%(restraintlines)s
+ntpr=%(ntpr)s, ntwr=%(ntpr)s, ntwx=%(ntwx)s,%(ntwprt_str)s%(ef_lines)s%(amd_lines)s%(tgtmd_lines)s
 /\n"""%locals())
 
             script += """\ncd %(mddir)s
@@ -844,7 +835,7 @@ ntpr=%(ntpr)s, ntwr=%(ntpr)s, ntwx=%(ntwx)s
 
         script += """\ncd %(mddir)s
 # production run
-%(exe)s -O -i md.mdin -o md.mdout -c %(rstfile)s -r md.rst -x md.mdcrd -inf md.mdinfo -p ../common/start.prmtop%(ref_flag)s
+%(exe)s -O -i md.mdin -o md.mdout -c %(rstfile)s -r md.rst -x md.mdcrd -inf md.mdinfo -p ../common/start.prmtop
 cd ..\n"""%locals()
 
 if step != ['prep']:
