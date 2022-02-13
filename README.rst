@@ -2,15 +2,15 @@
 MDKit
 *****
 
-MDKit is a python package that allows to easily perform  MD simulations with Amber. MDKit is especially helpful
-thanks to its *prepare_md.py* routine which can set up the different steps required for MD: sytem preparation
+MDKit is a python package that allows to easily perform MD simulations with Amber. MDKit is especially helpful
+thanks to its *prepare_md.py* routine which can set up all the steps required for MD: system preparation
 with or without ligands, 2 steps of minimization, equilibration in NVT ensemble, equilibration in NPT ensemble.
 *prepare_md.py* can be used to run MD on globular proteins or embedded membrane proteins (prepared with NAMD GUI)
 and to run standard or accelerated MD.
 
 **Versions of Amber supported by MDKit**
 
-Currently, only Amber14 and Amber16 are supported. Notably, AmberTools also be installed (from version 14 to 17).
+Currently, only Amber14 and Amber16 are supported. Notably, AmberTools also be installed (versions 14-17).
 
 
 Installation
