@@ -736,11 +736,6 @@ if 'md' in step:
         else:
             rstline = "irest=1, ntx=5"
 
-        #if restraint_mask:
-        #    restraintlines = "\nntr=1, restraint_wt=10.0,\nrestraintmask='%s'"%restraint_mask
-        #else:
-        #    restraintlines = ""
-
         if membrane:
             if rstfile is not None:
                 rstfile = os.path.relpath(rstfile, workdir_curr)
@@ -749,8 +744,6 @@ if 'md' in step:
 
             if reference_file is not None:
                 ref_flag = ' -ref %s'%(os.path.relpath(reffile, workdir_curr))
-            #elif restraint_mask:
-            #    ref_flag = ' -ref ../npt/npt10.rst'
             else:
                 ref_flag = ""
 
@@ -783,8 +776,6 @@ cd ..\n"""%locals()
 
             if reference_file is not None:
                 ref_flag = ' -ref %s'%(os.path.relpath(reffile, workdir_curr))
-            #elif restraint_mask:
-            #    ref_flag = ' -ref ../npt/npt.rst'
             else:
                 ref_flag = ""
 
