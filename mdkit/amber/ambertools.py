@@ -20,15 +20,13 @@ def get_last_solute_atom_num(filename):
     return str(int(line[6:11].strip()))
 
 def get_nwaters(logfile):
-
     with open(logfile, 'r') as logf:
         for line in logf:
             line_s = line.split()
-            if len(line_s) == 3 and line_s[0] == 'Added' and line_s[-1] == 'residues.':
+            if len(line_s) == 2 and line_s[0] == 'WAT':
                 return int(line_s[1])
 
-def get_removed_waters(file_r, files_l, file_c, nwaters_tgt, boxsize, step=0.01, ntries=5):
-
+def get_removed_waters(file_r, files_l, file_c, nwaters_tgt, boxsize, step=0.01, ntries=5, version='14'):
     if not files_l:
         file_c = file_r
 
@@ -48,7 +46,7 @@ def get_removed_waters(file_r, files_l, file_c, nwaters_tgt, boxsize, step=0.01,
         c = 1.0
         lastdiff = 1e10
         while True:
-            prepare_leap_config_file('leap.in', file_r, files_l, file_c, solvate=True, distance=d, closeness=c)
+            prepare_leap_config_file('leap.in', file_r, files_l, file_c, solvate=True, distance=d, closeness=c, version=version)
             utils.run_shell_command('tleap -f leap.in > leap.log')
             nwaters = get_nwaters('leap.log')
             diff = nwaters - nwaters_tgt
@@ -156,15 +154,17 @@ def get_solvent_mask(pdbfile, residues='WAT'):
                     if not resnum:
                         resnum_in = line[22:27].strip()
                     resnum = line[22:27].strip()
+                if resnum and resname not in solvent_residues:
+                    raise IOError("Non solvent atom detected after solvent, cannot properly build the solvent mask!")
 
     resnum_fin = resnum
     solvent_mask = ':%s-%s'%(resnum_in, resnum_fin)
     return solvent_mask
 
 def get_lipid_mask(pdbfile):
-    return get_solvent_mask(pdbfile, 'CHL,LA,MY,OL,PA,PC,PE')
+    return get_solvent_mask(pdbfile, residues='CHL,LA,MY,OL,PA,PC,PE')
 
-def get_ions_number(logfile, concentration=0.15, version='14'):
+def get_ions_number(logfile, concentration=0.15, version='14', replace=False):
 
     # Nions = Cions * Nwater * 1/55.5 where 55.5 M is the concentration of pure water
     with open(logfile, 'r') as lf:
@@ -181,7 +181,10 @@ def get_ions_number(logfile, concentration=0.15, version='14'):
             else:
                 sys.exit("get_ions_number only working with version 14 or 16 of Amber")
 
-    ncl = int(round(nwaters * concentration / 55.5))
+    if replace:
+        ncl = int(round(nwaters * concentration / 55.5/(1+2*concentration/55.5)))
+    else:
+        ncl = int(round(nwaters * concentration / 55.5))
     nna = int(ncl)
 
     with open(logfile, 'r') as lf:
@@ -193,6 +196,7 @@ def get_ions_number(logfile, concentration=0.15, version='14'):
                     ncl += abs(net_charge)
                 elif net_charge < 0:
                     nna += abs(net_charge)
+
     return nna, ncl
 
 def load_PROTON_INFO():
@@ -405,7 +409,7 @@ def run_antechamber(infile, outfile, at='gaff', c='gas', logfile='antechamber.lo
            command = 'antechamber -i %(infile)s -fi %(ext)s -o %(outfile)s -fo mol2 -at %(at)s -du y -pf y -dr no > %(logfile)s'%locals()
        utils.run_shell_command(command)
 
-def prepare_leap_config_file(script_name, file_r, files_l, file_rl, solvate=False, PBRadii=None, forcefield='ff14SB', nna=0, ncl=0, box='parallelepiped', distance=10.0, closeness=1.0, model='TIP3P', version='14', membrane=False):
+def prepare_leap_config_file(script_name, file_r, files_l, file_rl, solvate=False, PBRadii=None, forcefield='ff14SB', nna=0, ncl=0, box='parallelepiped', distance=10.0, closeness=1.0, model='TIP3P', version='14', membrane=False, removed_waters=None):
  
     solvation_line = ""
     pbradii_lines = ""
@@ -413,6 +417,7 @@ def prepare_leap_config_file(script_name, file_r, files_l, file_rl, solvate=Fals
     ligand_lines = ""
     ions_libraries_lines = ""
     loadpdb_line = ""
+    remove_water_lines = ""
     set_box_line = "" # used when membrane is True
 
     tip3p_models = ['TIP3P', 'TIP3PF', 'POL3', 'QSPCFW']
@@ -466,6 +471,10 @@ loadamberparams frcmod.ionslm_1264_%(suffix_ions_libraries)s"""%locals()
     if PBRadii:
         pbradii_lines = "\nset default PBRadii %s"%PBRadii
 
+    if removed_waters is not None:
+        for idx in removed_waters:
+            remove_water_lines += "\nremove complex complex.%i"%idx
+
     if files_l:
         forcefield_lines += '\nsource leaprc.gaff'
         if isinstance(files_l, basestring):
@@ -481,7 +490,7 @@ loadamberparams frcmod.ionslm_1264_%(suffix_ions_libraries)s"""%locals()
 
     with open(script_name, 'w') as leapf:
         script ="""%(forcefield_lines)s%(ions_libraries_lines)s%(ligand_lines)s%(pbradii_lines)s
-%(loadpdb_line)s%(solvation_line)s%(add_ions_lines)s%(set_box_line)s
+%(loadpdb_line)s%(solvation_line)s%(add_ions_lines)s%(set_box_line)s%(remove_water_lines)s
 saveAmberParm complex start.prmtop start.inpcrd
 savePdb complex start.pdb
 quit\n"""%locals()

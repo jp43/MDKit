@@ -178,7 +178,7 @@ def pdb2mol2(inputfile, outputfile, sample, keep_charges_from=None):
                 if is_atom:
                     raise ValueError("Mol2 atom name already found in PDB file, your files should have unique atom names!")
                 is_atom = True
-                coords = [coord + '0' for coord in line_pdb[30:54].split()]
+                coords = [coord.strip() + '0' for coord in [line_pdb[30:38], line_pdb[38:46], line_pdb[46:54]]]
                 for jdx in range(3):
                     new_struct['ATOM'][idx][jdx+2] = coords[jdx]
         if not is_atom:
