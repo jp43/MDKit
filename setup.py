@@ -17,5 +17,5 @@ setuptools.setup(name='mdkit',
     install_requires = ['networkx==2.2', 'numpy==1.16.0', 'cython==0.29.2'],
     license='LICENSE.txt',
     description='Tools to prepare and analyze MD simulations conducted with popular MD packages',
-    long_description=open('README.md').read(),
+    long_description=open('README.rst').read(),
 )
