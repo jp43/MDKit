@@ -69,20 +69,26 @@ class Reader(object):
                 struct = {}
                 section = 'MOLECULE'
                 struct[section] = []
+
             # new molecule detected
             if line.startswith('@<TRIPOS>MOLECULE'):
                 break
+
             elif line.startswith('@<TRIPOS>'):
                 section = line[9:].strip()
                 struct[section] = []
+
             elif section and line.strip():
                 if section == 'ATOM':
                     atom = line.split()
+                    if len(atom[5]) > 5:
+                        atom = atom[0:5] + [atom[5][0:5]] + [atom[5][5:]] + atom[6:]
                     if len(atom) > 9:
                         atom = atom[:9]
                     struct[section].append(atom)
                 else:
                     struct[section].append(line)
+
             elif section and not line.strip():
                 struct[section].append(line)
                 section = None
@@ -221,7 +227,7 @@ def get_graph(inputfile):
     return G
 
 def update_ligand_name(struct, ligname):
-
+    """Update ligand name in mol2 structure"""
     ligname_p = struct['ATOM'][0][-2]
 
     new_struct = struct
@@ -234,7 +240,9 @@ def update_ligand_name(struct, ligname):
 
     return new_struct
 
+
 def shift_coordinates(struct, shift):
+    """Shift coordinates in mol2 structure"""
 
     coords = []
     for line in struct['ATOM']:
@@ -253,6 +261,7 @@ def shift_coordinates(struct, shift):
     return new_struct
 
 def replace_coordinates(struct, coords):
+    """Replace coordinates in mol2 structure"""
 
     new_struct = struct
     for idx, line in enumerate(struct['ATOM']):
@@ -360,7 +369,7 @@ def arrange_hydrogens(inputfile, outputfile, path=None):
 
     # remove hydrogens from structure
     inputfile_noH = base + '_noH' + ext
-    subprocess.check_output('babel -imol2 %s -omol2 %s -d &>/dev/null'%(inputfile,inputfile_noH), shell=True, executable='/bin/bash')
+    subprocess.check_output('obabel -imol2 %s -omol2 -O%s -d &>/dev/null'%(inputfile,inputfile_noH), shell=True, executable='/bin/bash')
     molnoH = Read(inputfile_noH)
 
     allAtoms = mol.allAtoms
@@ -474,3 +483,17 @@ def get_coordinates(filename, keep_h=True):
                 if keep_h or line_s[5][0].lower() != 'h':
                     coords.append(map(float,line_s[2:5]))
     return coords
+
+def get_ligand_name(filename):
+
+    atoms_names = []
+    with open(filename, 'r') as mol2f:
+        is_structure = False
+        for line in mol2f:
+            if line.startswith('@<TRIPOS>ATOM'):
+                is_structure = True
+            elif line.startswith('@<TRIPOS>'):
+                is_structure = False
+            elif is_structure:
+                line_s = line.split()
+                return line_s[7]

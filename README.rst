@@ -10,7 +10,7 @@ and to run standard or accelerated MD.
 
 **Versions of Amber supported by MDKit**
 
-Currently, only Amber14 and Amber16 are supported. Notably, AmberTools also be installed (versions 14-17).
+Currently, only Amber14 and Amber16 are supported. Notably, AmberTools should also be installed (versions 14-17).
 
 
 Installation

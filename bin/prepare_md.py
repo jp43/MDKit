@@ -132,12 +132,6 @@ parser.add_argument('-namd',
     action='store_true',
     help="Prepare files for NAMD only.")
 
-parser.add_argument('-np',
-    dest='ncpus',
-    type=int,
-    default=None,
-    help="Number of cpus used for the simulations (default (serial, largemem): 1, default (gpu): 16)")
-
 parser.add_argument('-maxcyc_s',
     dest='maxcyc_s',
     default=10000,
@@ -202,7 +196,7 @@ parser.add_argument('-p',
     dest='partition',
     type=str,
     default="serial",
-    help="Partition to run MD on")
+    help="Partition (serial, mpi, gpu). Will determine which executables to use!")
 
 parser.add_argument('-pbradii',
     dest='pbradii',
@@ -283,12 +277,6 @@ if args.cut is None:
     else:
         args.cut = 999.0
 
-if args.ncpus is None:
-    if args.partition == 'gpu':
-        args.ncpus = 16
-    else:
-        args.ncpus = 8
-
 locals().update(args.__dict__)
 
 # get amber version
@@ -328,6 +316,8 @@ if files_l is not None:
 # ----- SET WORKING DIRECTORY ------
 if workdir is not None:
     workdir_abspath = os.path.abspath(workdir)
+    if workdir_abspath == pwd:
+        raise ValueError("Please specify another working directory than the current folder (-w option)!")
 else:
     dir_r = os.path.dirname(file_r_abspath)
     file_r_prefix, ext = os.path.splitext(os.path.basename(file_r_abspath))
@@ -402,15 +392,12 @@ set -e\n"""
 if partition == 'gpu':
     exe = 'pmemd.cuda'
     cpptrajexe = 'cpptraj.cuda'
-else:
-    if ncpus == 1:
-      exe = 'sander'
-    elif ncpus > 1:
-      exe = 'mpirun -np %(ncpus)s sander.MPI'%locals()
-    else:
-        raise ValueError('Number of CPUS (-np) should be greater or equal to 1')
+elif partition == 'mpi':
+    exe = 'mpirun -np 8 sander.MPI'%locals()
     cpptrajexe = 'cpptraj'
-script += "cd %s\n"""%os.path.relpath(workdir_abspath)
+else:
+    exe = 'sander'
+    cpptrajexe = 'cpptraj'
 
 # ------- STEP 2: minimization -------
 if 'min' in step:
@@ -830,5 +817,5 @@ ntpr=%(ntpr)s, ntwr=%(ntpr)s, ntwx=%(ntwx)s
 cd ..\n"""%locals()
 
 if step != ['prep']:
-    with open(script_name, 'w') as ff:
+    with open(workdir_abspath+"/"+script_name, 'w') as ff:
         ff.write(script)

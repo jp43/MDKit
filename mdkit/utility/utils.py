@@ -82,7 +82,6 @@ def extract_amd_lines(parsed_string):
         return ""
 
 def extract_tgtmd_lines(parsed_string):
-
     if parsed_string is None:
         return ""
 
